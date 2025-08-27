@@ -1,0 +1,191 @@
+filebeat.inputs:
+  # Nginx Access Logs
+  - type: filestream
+    enabled: true
+    id: nginx-access
+    paths:
+      - /var/log/nginx/access.log
+    fields:
+      source: "nginx"
+      log_type: "access"
+    fields_under_root: true
+    parsers:
+      - ndjson: {}
+
+  # Nginx Error Logs
+  - type: filestream
+    enabled: true
+    id: nginx-error
+    paths:
+      - /var/log/nginx/error.log
+    fields:
+      source: "nginx"
+      log_type: "error"
+    fields_under_root: true
+
+  # Apache Access Logs
+  - type: filestream
+    enabled: true
+    id: apache-access
+    paths:
+      - /var/log/apache2/access.log
+      - /var/log/apache2/other_vhosts_access.log
+    fields:
+      source: "apache"
+      log_type: "access"
+    fields_under_root: true
+
+  # Apache Error Logs
+  - type: filestream
+    enabled: true
+    id: apache-error
+    paths:
+      - /var/log/apache2/error.log
+    fields:
+      source: "apache"
+      log_type: "error"
+    fields_under_root: true
+
+  # Application Logs (adjust paths as needed)
+  - type: filestream
+    enabled: true
+    id: app-logs
+    paths:
+      - /var/log/myapp/*.log
+      - /opt/myapp/logs/*.log
+      - /home/*/app/logs/*.log
+    fields:
+      source: "application"
+      log_type: "application"
+    fields_under_root: true
+    multiline:
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}"
+      negate: true
+      match: after
+
+  # Optional: System logs
+  - type: filestream
+    enabled: false # Enable if you want system logs
+    id: syslogs
+    paths:
+      - /var/log/syslog
+      - /var/log/auth.log
+    fields:
+      source: "system"
+      log_type: "system"
+    fields_under_root: true
+
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+  # Generate ID
+  - fingerprint:
+      fields: ["log.file.path", "message"]
+      target_field: "id"
+      method: "sha256"
+      encoding: "hex"
+
+  # Set log level based on source and content
+  - script:
+      lang: javascript
+      source: >
+        function process(event) {
+          var message = event.Get("message");
+          var logType = event.Get("log_type");
+          var level = "info";
+
+          if (logType === "error") {
+            level = "error";
+          } else if (message && message.toLowerCase().includes("warn")) {
+            level = "warning";
+          } else if (message && (
+            message.toLowerCase().includes("error") ||
+            message.toLowerCase().includes("failed") ||
+            message.toLowerCase().includes("exception")
+          )) {
+            level = "error";
+          }
+          event.Put("level", level);
+        }
+
+  # Extract details from HTTP logs
+  - dissect:
+      tokenizer: '%{client.ip} - %{?user.id} [%{@timestamp}] "%{http.request.method} %{url.original} HTTP/%{http.version}" %{http.response.status_code} %{http.response.body.bytes} "%{http.request.referrer}" "%{user_agent.original}"'
+      field: "message"
+      target_prefix: "temp"
+      ignore_failure: true
+
+  # Rename fields to match your LogEntry format
+  - rename:
+      fields:
+        - from: "temp.client.ip"
+          to: "details.ip"
+        - from: "temp.user_agent.original"
+          to: "details.userAgent"
+        - from: "temp.user.id"
+          to: "details.userId"
+        - from: "temp.http.response.status_code"
+          to: "details.statusCode"
+        - from: "temp.http.request.method"
+          to: "details.method"
+        - from: "temp.url.original"
+          to: "details.path"
+        - from: "temp.http.response.body.bytes"
+          to: "details.size"
+      ignore_missing: true
+      fail_on_error: false
+
+  # Convert to your exact LogEntry format
+  - convert:
+      fields:
+        - from: "@timestamp"
+          to: "timestamp"
+          type: "string"
+          mode: "rename"
+      ignore_missing: true
+
+  # Remove unnecessary fields
+  - drop_fields:
+      fields: ["ecs", "agent", "input", "log", "host", "temp"]
+      ignore_missing: true
+
+output.http:
+  hosts: ["http://your-custom-endpoint.com/api/logs"] # Your endpoint URL
+  protocol: "https"
+  method: "POST"
+  headers:
+    Content-Type: "application/json"
+    Authorization: "Bearer your-auth-token" # If needed
+  message_format: "formatted"
+  format:
+    string: '{
+      "id": "{{.id}}",
+      "project": "ProjectName",
+      "timestamp": "{{.timestamp}}",
+      "source": "{{.source}}",
+      "message": "{{.message}}",
+      "level": "{{.level}}",
+      "details": {
+      {{if .details.ip}}"ip": "{{.details.ip}}",{{end}}
+      {{if .details.userAgent}}"userAgent": "{{.details.userAgent}}",{{end}}
+      {{if .details.userId}}"userId": "{{.details.userId}}",{{end}}
+      {{if .details.duration}}"duration": {{.details.duration}},{{end}}
+      {{if .details.statusCode}}"statusCode": {{.details.statusCode}},{{end}}
+      {{if .details.method}}"method": "{{.details.method}}",{{end}}
+      {{if .details.path}}"path": "{{.details.path}}",{{end}}
+      {{if .details.size}}"size": "{{.details.size}}"{{end}}
+      }
+      }'
+
+# Enable logging for debugging
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644

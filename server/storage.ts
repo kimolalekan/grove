@@ -1,13 +1,13 @@
-import { 
-  User, 
-  NewUser, 
-  user, 
-  events, 
-  admin, 
-  message, 
-  transaction, 
-  report, 
-  verification, 
+import {
+  User,
+  NewUser,
+  user,
+  events,
+  admin,
+  message,
+  transaction,
+  report,
+  verification,
   blockLists,
   apiKey,
   apiLog,
@@ -107,8 +107,8 @@ export class MemStorage implements IStorage {
   }
 
   private seedData() {
-    const today = new Date().toISOString().split('T')[0];
-    
+    const today = new Date().toISOString().split("T")[0];
+
     // Create default admin
     const adminId = randomUUID();
     this.admins.set(adminId, {
@@ -131,7 +131,11 @@ export class MemStorage implements IStorage {
         email: "sarah@example.com",
         phone: "+1-555-123-4567",
         dob: "1995-06-15",
-        location: { city: "New York", country: "US", coordinates: { latitude: 40.7128, longitude: -74.0060 } },
+        location: {
+          city: "New York",
+          country: "US",
+          coordinates: { latitude: 40.7128, longitude: -74.006 },
+        },
         isActive: true,
         isVerified: true,
         bio: "Looking for genuine connections and someone who shares my love for adventure!",
@@ -158,7 +162,11 @@ export class MemStorage implements IStorage {
         email: "mike@example.com",
         phone: "+1-555-234-5678",
         dob: "1990-03-22",
-        location: { city: "San Francisco", country: "US", coordinates: { latitude: 37.7749, longitude: -122.4194 } },
+        location: {
+          city: "San Francisco",
+          country: "US",
+          coordinates: { latitude: 37.7749, longitude: -122.4194 },
+        },
         isActive: true,
         isVerified: false,
         bio: "Software engineer who loves outdoor activities and trying new restaurants.",
@@ -185,7 +193,11 @@ export class MemStorage implements IStorage {
         email: "emma@example.com",
         phone: "+1-555-345-6789",
         dob: "1993-09-08",
-        location: { city: "Los Angeles", country: "US", coordinates: { latitude: 34.0522, longitude: -118.2437 } },
+        location: {
+          city: "Los Angeles",
+          country: "US",
+          coordinates: { latitude: 34.0522, longitude: -118.2437 },
+        },
         isActive: true,
         isVerified: true,
         bio: "Yoga instructor and wellness enthusiast. Looking for someone who values health and mindfulness.",
@@ -212,7 +224,11 @@ export class MemStorage implements IStorage {
         email: "david@example.com",
         phone: "+1-555-456-7890",
         dob: "1988-12-03",
-        location: { city: "Chicago", country: "US", coordinates: { latitude: 41.8781, longitude: -87.6298 } },
+        location: {
+          city: "Chicago",
+          country: "US",
+          coordinates: { latitude: 41.8781, longitude: -87.6298 },
+        },
         isActive: false,
         isVerified: true,
         bio: "Teacher who loves books, board games, and meaningful conversations.",
@@ -239,7 +255,11 @@ export class MemStorage implements IStorage {
         email: "jessica@example.com",
         phone: "+1-555-567-8901",
         dob: "1996-04-18",
-        location: { city: "Miami", country: "US", coordinates: { latitude: 25.7617, longitude: -80.1918 } },
+        location: {
+          city: "Miami",
+          country: "US",
+          coordinates: { latitude: 25.7617, longitude: -80.1918 },
+        },
         isActive: true,
         isVerified: false,
         bio: "Graphic designer who loves art, music festivals, and weekend adventures.",
@@ -258,10 +278,10 @@ export class MemStorage implements IStorage {
         date: null,
         created_at: "2024-01-11",
         updated_at: "2024-01-11",
-      }
+      },
     ];
 
-    sampleUsers.forEach(user => this.users.set(user.id, user as User));
+    sampleUsers.forEach((user) => this.users.set(user.id, user as User));
 
     // Create sample reports
     const reports = [
@@ -280,7 +300,8 @@ export class MemStorage implements IStorage {
         violatorId: sampleUsers[4].id,
         userId: sampleUsers[2].id,
         reason: "Harassment",
-        description: "User sent multiple unwanted messages after being asked to stop",
+        description:
+          "User sent multiple unwanted messages after being asked to stop",
         status: "pending",
         created_at: new Date(),
         updated_at: new Date(),
@@ -294,10 +315,10 @@ export class MemStorage implements IStorage {
         status: "resolved",
         created_at: new Date(),
         updated_at: new Date(),
-      }
+      },
     ];
 
-    reports.forEach(report => this.reports.set(report.id, report as Report));
+    reports.forEach((report) => this.reports.set(report.id, report as Report));
 
     // Create sample verifications
     const verifications = [
@@ -324,10 +345,12 @@ export class MemStorage implements IStorage {
         status: "approved",
         created_at: new Date(),
         updated_at: new Date(),
-      }
+      },
     ];
 
-    verifications.forEach(verification => this.verifications.set(verification.id, verification as Verification));
+    verifications.forEach((verification) =>
+      this.verifications.set(verification.id, verification as Verification),
+    );
 
     // Create sample transactions
     const transactions = [
@@ -378,10 +401,12 @@ export class MemStorage implements IStorage {
         approved_by: "admin",
         created_at: "2024-01-12",
         updated_at: "2024-01-12",
-      }
+      },
     ];
 
-    transactions.forEach(transaction => this.transactions.set(transaction.id, transaction as Transaction));
+    transactions.forEach((transaction) =>
+      this.transactions.set(transaction.id, transaction as Transaction),
+    );
 
     // Create sample events
     const events = [
@@ -389,8 +414,11 @@ export class MemStorage implements IStorage {
         id: randomUUID(),
         title: "Coffee Date",
         description: "Let's grab coffee and get to know each other better",
-        start_time: new Date('2024-01-20T15:00:00Z'),
-        location: { address: "Starbucks, 123 Main St, New York, NY", coordinates: { lat: 40.7589, lng: -73.9851 } },
+        start_time: new Date("2024-01-20T15:00:00Z"),
+        location: {
+          address: "Starbucks, 123 Main St, New York, NY",
+          coordinates: { lat: 40.7589, lng: -73.9851 },
+        },
         creator_id: sampleUsers[0].id,
         partner_id: sampleUsers[1].id,
         status: "pending",
@@ -401,24 +429,28 @@ export class MemStorage implements IStorage {
         id: randomUUID(),
         title: "Museum Visit",
         description: "Explore the art museum together this weekend",
-        start_time: new Date('2024-01-21T14:00:00Z'),
-        location: { address: "Metropolitan Museum, New York, NY", coordinates: { lat: 40.7794, lng: -73.9632 } },
+        start_time: new Date("2024-01-21T14:00:00Z"),
+        location: {
+          address: "Metropolitan Museum, New York, NY",
+          coordinates: { lat: 40.7794, lng: -73.9632 },
+        },
         creator_id: sampleUsers[2].id,
         partner_id: null,
         status: "planned",
         created_at: new Date(),
         updated_at: new Date(),
-      }
+      },
     ];
 
-    events.forEach(event => this.events.set(event.id, event as Event));
+    events.forEach((event) => this.events.set(event.id, event as Event));
 
     // Create sample messages
     const messages = [
       {
         id: randomUUID(),
         channel: "ch-" + randomUUID().slice(0, 8),
-        content: "Hey! I really enjoyed our conversation yesterday. Would you like to meet for coffee sometime this week?",
+        content:
+          "Hey! I really enjoyed our conversation yesterday. Would you like to meet for coffee sometime this week?",
         type: "text",
         sender: sampleUsers[0].id,
         recipient: sampleUsers[1].id,
@@ -438,15 +470,17 @@ export class MemStorage implements IStorage {
         deleted: false,
         created_at: today,
         updated_at: today,
-      }
+      },
     ];
 
-    messages.forEach(message => this.messages.set(message.id, message as Message));
+    messages.forEach((message) =>
+      this.messages.set(message.id, message as Message),
+    );
 
     // Create sample API keys
     const apiKeys = [
       {
-        apikey: "loveapp_" + randomUUID().replace(/-/g, '').slice(0, 32),
+        apikey: "loveapp_" + randomUUID().replace(/-/g, "").slice(0, 32),
         name: "Mobile App Production",
         email: "dev@loveapp.com",
         active: true,
@@ -454,7 +488,7 @@ export class MemStorage implements IStorage {
         updated_at: today,
       },
       {
-        apikey: "loveapp_" + randomUUID().replace(/-/g, '').slice(0, 32),
+        apikey: "loveapp_" + randomUUID().replace(/-/g, "").slice(0, 32),
         name: "Analytics Dashboard",
         email: "analytics@loveapp.com",
         active: true,
@@ -462,16 +496,18 @@ export class MemStorage implements IStorage {
         updated_at: today,
       },
       {
-        apikey: "loveapp_" + randomUUID().replace(/-/g, '').slice(0, 32),
+        apikey: "loveapp_" + randomUUID().replace(/-/g, "").slice(0, 32),
         name: "Testing Environment",
         email: "test@loveapp.com",
         active: false,
         created_at: today,
         updated_at: today,
-      }
+      },
     ];
 
-    apiKeys.forEach(apiKey => this.apiKeys.set(apiKey.apikey, apiKey as ApiKey));
+    apiKeys.forEach((apiKey) =>
+      this.apiKeys.set(apiKey.apikey, apiKey as ApiKey),
+    );
 
     // Create sample API logs
     const apiLogs = [
@@ -510,10 +546,10 @@ export class MemStorage implements IStorage {
         by: "analytics_dashboard",
         created_at: today,
         updated_at: today,
-      }
+      },
     ];
 
-    apiLogs.forEach(apiLog => this.apiLogs.set(apiLog.id, apiLog as ApiLog));
+    apiLogs.forEach((apiLog) => this.apiLogs.set(apiLog.id, apiLog as ApiLog));
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -521,30 +557,39 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.username === username);
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username,
+    );
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.email === email);
+    return Array.from(this.users.values()).find((user) => user.email === email);
   }
 
   async createUser(userData: NewUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { 
-      ...userData, 
+    const user: User = {
+      ...userData,
       id,
-      created_at: new Date().toISOString().split('T')[0],
-      updated_at: new Date().toISOString().split('T')[0],
+      created_at: new Date().toISOString().split("T")[0],
+      updated_at: new Date().toISOString().split("T")[0],
     };
     this.users.set(id, user);
     return user;
   }
 
-  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+  async updateUser(
+    id: string,
+    updates: Partial<User>,
+  ): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
-    
-    const updatedUser = { ...user, ...updates, updated_at: new Date().toISOString().split('T')[0] };
+
+    const updatedUser = {
+      ...user,
+      ...updates,
+      updated_at: new Date().toISOString().split("T")[0],
+    };
     this.users.set(id, updatedUser);
     return updatedUser;
   }
@@ -559,23 +604,23 @@ export class MemStorage implements IStorage {
     subscription?: string;
   }): Promise<User[]> {
     let users = Array.from(this.users.values());
-    
+
     if (filters.status && filters.status !== "All Users") {
-      users = users.filter(user => {
+      users = users.filter((user) => {
         if (filters.status === "Active") return user.isActive;
         if (filters.status === "Inactive") return !user.isActive;
         return true;
       });
     }
-    
+
     if (filters.verification && filters.verification !== "All") {
-      users = users.filter(user => {
+      users = users.filter((user) => {
         if (filters.verification === "Verified") return user.isVerified;
         if (filters.verification === "Unverified") return !user.isVerified;
         return true;
       });
     }
-    
+
     return users;
   }
 
@@ -584,14 +629,16 @@ export class MemStorage implements IStorage {
   }
 
   async getAdminByEmail(email: string): Promise<Admin | undefined> {
-    return Array.from(this.admins.values()).find(admin => admin.email === email);
+    return Array.from(this.admins.values()).find(
+      (admin) => admin.email === email,
+    );
   }
 
   async createAdmin(adminData: Partial<Admin>): Promise<Admin> {
     const id = randomUUID();
-    const today = new Date().toISOString().split('T')[0];
-    const newAdmin = { 
-      ...adminData, 
+    const today = new Date().toISOString().split("T")[0];
+    const newAdmin = {
+      ...adminData,
       id,
       created_at: today,
       updated_at: today,
@@ -611,7 +658,11 @@ export class MemStorage implements IStorage {
   async updateEventStatus(id: string, status: string): Promise<void> {
     const event = this.events.get(id);
     if (event) {
-      this.events.set(id, { ...event, status: status as any, updated_at: new Date() });
+      this.events.set(id, {
+        ...event,
+        status: status as any,
+        updated_at: new Date(),
+      });
     }
   }
 
@@ -645,7 +696,11 @@ export class MemStorage implements IStorage {
   async updateVerificationStatus(id: string, status: string): Promise<void> {
     const verification = this.verifications.get(id);
     if (verification) {
-      this.verifications.set(id, { ...verification, status, updated_at: new Date() });
+      this.verifications.set(id, {
+        ...verification,
+        status,
+        updated_at: new Date(),
+      });
     }
   }
 
@@ -655,8 +710,13 @@ export class MemStorage implements IStorage {
 
   async createApiLog(logData: Partial<ApiLog>): Promise<void> {
     const id = randomUUID();
-    const today = new Date().toISOString().split('T')[0];
-    this.apiLogs.set(id, { ...logData, id, created_at: today, updated_at: today } as ApiLog);
+    const today = new Date().toISOString().split("T")[0];
+    this.apiLogs.set(id, {
+      ...logData,
+      id,
+      created_at: today,
+      updated_at: today,
+    } as ApiLog);
   }
 
   async getAllApiKeys(): Promise<ApiKey[]> {
@@ -690,17 +750,26 @@ export class MemStorage implements IStorage {
 
     return {
       totalUsers: users.length,
-      activeUsers: users.filter(u => u.isActive).length,
-      totalRevenue: Math.round(transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0) * 100) / 100,
-      pendingReports: reports.filter(r => r.status === "pending").length,
-      premiumSubscribers: transactions.filter(t => t.subscribed && t.plan?.includes("Premium")).length,
-      failedPayments: transactions.filter(t => !t.subscribed).length,
+      activeUsers: users.filter((u) => u.isActive).length,
+      totalRevenue:
+        Math.round(
+          transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0) * 100,
+        ) / 100,
+      pendingReports: reports.filter((r) => r.status === "pending").length,
+      premiumSubscribers: transactions.filter(
+        (t) => t.subscribed && t.plan?.includes("Premium"),
+      ).length,
+      failedPayments: transactions.filter((t) => !t.subscribed).length,
       totalMessages: messages.length,
-      todayMessages: messages.filter(m => m.created_at === new Date().toISOString().split('T')[0]).length,
-      flaggedMessages: reports.filter(r => r.reason === "Inappropriate Content").length,
-      imageMessages: messages.filter(m => m.type === "image").length,
+      todayMessages: messages.filter(
+        (m) => m.created_at === new Date().toISOString().split("T")[0],
+      ).length,
+      flaggedMessages: reports.filter(
+        (r) => r.reason === "Inappropriate Content",
+      ).length,
+      imageMessages: messages.filter((m) => m.type === "image").length,
       totalApiRequests: apiLogs.length,
-      activeApiKeys: apiKeys.filter(k => k.active).length,
+      activeApiKeys: apiKeys.filter((k) => k.active).length,
     };
   }
 }

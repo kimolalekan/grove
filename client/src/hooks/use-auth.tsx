@@ -1,83 +1,94 @@
-import { createContext, useContext, useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+// hooks/use-auth.tsx
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useCallback,
+} from "react";
+import Cookies from "js-cookie";
+import { useLocation } from "wouter";
 
-interface Admin {
+interface User {
   id: string;
   name: string;
   email: string;
   role: string;
+  status: string;
+  lastLogin: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AuthContextType {
-  admin: Admin | null;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  user: User | null;
+  setUser: (user: User | null) => void;
   isLoading: boolean;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [admin, setAdmin] = useState<Admin | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUserState] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [location, setLocation] = useLocation();
 
-  const loginMutation = useMutation({
-    mutationFn: async ({ email, password }: { email: string; password: string }) => {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      
-      if (!response.ok) {
-        throw new Error("Invalid credentials");
-      }
-      
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      setAdmin(data.admin);
-      localStorage.setItem("admin_token", data.token);
-    },
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await fetch("/api/auth/logout", { method: "POST" });
-    },
-    onSuccess: () => {
-      setAdmin(null);
-      localStorage.removeItem("admin_token");
-    },
-  });
-
+  // Load user from cookie on mount
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (token) {
-      setAdmin({
-        id: "1",
-        name: "John Admin",
-        email: "admin@loveadmin.com",
-        role: "admin",
+    const userCookie = Cookies.get("user");
+    const tokenCookie = Cookies.get("token");
+
+    // If no token or user cookie, redirect to login
+    if (!tokenCookie || !userCookie) {
+      setIsLoading(false);
+      setLocation("/login");
+      return;
+    }
+
+    if (userCookie) {
+      try {
+        const userData = JSON.parse(userCookie);
+        setUserState(userData);
+      } catch (error) {
+        // Clear invalid cookie and redirect to login
+        Cookies.remove("user");
+        Cookies.remove("token");
+        setLocation("/login");
+      }
+    }
+    setIsLoading(false);
+  }, [setLocation]);
+
+  // Update cookie when user changes
+  const setUser = useCallback((newUser: User | null) => {
+    setUserState(newUser);
+    if (newUser) {
+      Cookies.set("user", JSON.stringify(newUser), {
+        expires: 4 / 24,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
       });
+    } else {
+      Cookies.remove("user");
+      Cookies.remove("token");
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    return await loginMutation.mutateAsync({ email, password });
-  };
-
-  const logout = async () => {
-    return await logoutMutation.mutateAsync();
-  };
+  // Logout function
+  const logout = useCallback(() => {
+    setUserState(null);
+    Cookies.remove("user");
+    Cookies.remove("token");
+    setLocation("/login");
+  }, [setLocation]);
 
   const value = {
-    admin,
-    login,
+    user,
+    setUser,
+    isLoading,
     logout,
-    isLoading: loginMutation.isPending || logoutMutation.isPending,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

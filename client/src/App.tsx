@@ -5,14 +5,23 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
-import Dashboard from "@/pages/dashboard";
+import Metrics from "@/pages/metrics";
+import Logs from "@/pages/logs";
+import Alerts from "@/pages/alerts";
+import Users from "@/pages/users";
+import Apikeys from "@/pages/apikeys";
 import { AuthProvider } from "@/hooks/use-auth";
 
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={Metrics} />
+      <Route path="/metrics" component={Metrics} />
+      <Route path="/logs" component={Logs} />
+      <Route path="/alerts" component={Alerts} />
+      <Route path="/users" component={Users} />
+      <Route path="/apikeys" component={Apikeys} />
       <Route component={NotFound} />
     </Switch>
   );
