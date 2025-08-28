@@ -222,6 +222,11 @@ export default function Logs() {
     }
   }, [projectsError, sourcesError, toast, refetchProjects, refetchSources]);
 
+  // Reset pagination when date range changes
+  React.useEffect(() => {
+    resetPagination();
+  }, [dateRange.from, dateRange.to]);
+
   const { data: logData, refetch } = useQuery({
     queryKey: [
       "logs",
@@ -230,6 +235,8 @@ export default function Logs() {
       selectedLevel,
       selectedProject,
       selectedTimeRange,
+      dateRange.from,
+      dateRange.to,
       currentPage,
     ],
     queryFn: async () => {
@@ -240,6 +247,21 @@ export default function Logs() {
       if (selectedLevel !== "all") searchParams.append("level", selectedLevel);
       if (selectedProject !== "all")
         searchParams.append("project", selectedProject);
+
+      // Add time range parameters
+      if (selectedTimeRange) {
+        searchParams.append("timeRange", selectedTimeRange);
+      }
+
+      // Add custom date range if selected
+      if (selectedTimeRange === "custom") {
+        if (dateRange.from) {
+          searchParams.append("from", dateRange.from.toISOString());
+        }
+        if (dateRange.to) {
+          searchParams.append("to", dateRange.to.toISOString());
+        }
+      }
 
       searchParams.append("limit", itemsPerPage.toString());
       searchParams.append(
@@ -563,13 +585,11 @@ export default function Logs() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="1">Last hour</SelectItem>
+                <SelectItem value="6">Last 6 hours</SelectItem>
+                <SelectItem value="12">Last 12 hours</SelectItem>
                 <SelectItem value="24">Last 24 hours</SelectItem>
-                <SelectItem value="7">Last 7 days</SelectItem>
-                <SelectItem value="30">Last 30 days</SelectItem>
-                <SelectItem value="60">Last 60 days</SelectItem>
-                <SelectItem value="90">Last 90 days</SelectItem>
-                <SelectItem value="180">Last 180 days</SelectItem>
-                <SelectItem value="365">Last 365 days</SelectItem>
+                <SelectItem value="72">Last 3 days</SelectItem>
+                <SelectItem value="168">Last 7 days</SelectItem>
                 <SelectItem value="custom">Custom range</SelectItem>
               </SelectContent>
             </Select>
@@ -855,7 +875,11 @@ export default function Logs() {
                       <div className="text-sm font-medium text-muted-foreground">
                         Timestamp
                       </div>
-                      <div className="text-sm">{selectedLog.timestamp}</div>
+                      <div className="text-sm">
+                        {dayjs(selectedLog.timestamp).format(
+                          "MMM DD, YYYY @ hh:mm:ss A",
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-sm font-medium text-muted-foreground">

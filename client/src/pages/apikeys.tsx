@@ -277,8 +277,8 @@ export default function Apikeys() {
 
   const filteredApikeys = apikeys.filter((api) => {
     const matchesSearch =
-      api.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      api.key.toLowerCase().includes(searchQuery.toLowerCase());
+      api.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      api.key?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || api.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -400,7 +400,7 @@ export default function Apikeys() {
                           }
                           className={
                             apikey.status === "active"
-                              ? "bg-green-100 text-green-800 hover:bg-green-100"
+                              ? "bg-admin-green-100 text-green-800 hover:bg-admin-green-100"
                               : ""
                           }
                         >
@@ -518,7 +518,7 @@ export default function Apikeys() {
               </Button>
               <Button
                 onClick={handleEditApikey}
-                disabled={!currentApikey?.name.trim()}
+                disabled={!currentApikey?.name?.trim()}
               >
                 Save Changes
               </Button>

@@ -1,4 +1,3 @@
-// hooks/use-auth.tsx
 import {
   createContext,
   useContext,
@@ -33,54 +32,43 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
 
-  // Load user from cookie on mount
   useEffect(() => {
     const userCookie = Cookies.get("user");
-    const tokenCookie = Cookies.get("token");
-
-    // If no token or user cookie, redirect to login
-    if (!tokenCookie || !userCookie) {
-      setIsLoading(false);
-      setLocation("/login");
-      return;
-    }
 
     if (userCookie) {
       try {
         const userData = JSON.parse(userCookie);
         setUserState(userData);
+        console.log("User data restored:", userData);
       } catch (error) {
-        // Clear invalid cookie and redirect to login
+        console.error("Failed to parse user cookie:", error);
         Cookies.remove("user");
-        Cookies.remove("token");
-        setLocation("/login");
       }
+    } else {
+      console.log("No user cookie found");
     }
     setIsLoading(false);
-  }, [setLocation]);
+  }, []);
 
-  // Update cookie when user changes
   const setUser = useCallback((newUser: User | null) => {
     setUserState(newUser);
     if (newUser) {
       Cookies.set("user", JSON.stringify(newUser), {
-        expires: 4 / 24,
+        expires: 4 / 24, // 4 hours
         secure: process.env.NODE_ENV === "production",
         sameSite: "strict",
       });
     } else {
       Cookies.remove("user");
-      Cookies.remove("token");
     }
   }, []);
 
-  // Logout function
   const logout = useCallback(() => {
     setUserState(null);
     Cookies.remove("user");
-    Cookies.remove("token");
+    // Navigate to login after logout
     setLocation("/login");
   }, [setLocation]);
 

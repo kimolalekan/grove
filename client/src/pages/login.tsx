@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, TreeDeciduous, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import Cookies from "js-cookie";
 
 interface LoginRequest {
   email: string;
@@ -52,32 +51,23 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
-  const { setUser } = useAuth();
+  const { user, setUser, isLoading } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+
+  // Check if user is already authenticated and redirect
+  useEffect(() => {
+    if (!isLoading && user) {
+      navigate("/metrics");
+    }
+  }, [user, isLoading, navigate]);
 
   // React Query mutation for login
   const loginMutation = useMutation({
     mutationFn: loginUser,
     onSuccess: (data) => {
-      // Store user data in auth context
+      // Store user data in auth context (this will also handle cookie storage)
       setUser(data.data);
-
-      // Store user data in cookie with 1-hour expiration
-      Cookies.set("user", JSON.stringify(data.data), {
-        expires: 1 / 24, // 1 hour (1/24 of a day)
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-      });
-
-      // Store session token if your API returns one
-      if (data.token) {
-        Cookies.set("token", data.token, {
-          expires: 1 / 24,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
-        });
-      }
 
       // Show success toast
       toast({
@@ -85,8 +75,10 @@ export default function Login() {
         description: `Welcome back, ${data.data.name}!`,
       });
 
-      // Navigate to home page
-      navigate("/metrics");
+      // Navigate after a short delay to ensure state is updated
+      setTimeout(() => {
+        navigate("/metrics");
+      }, 100);
     },
     onError: (error: Error) => {
       toast({
@@ -137,21 +129,19 @@ export default function Login() {
     loginMutation.mutate({ email, password });
   };
 
-  // Check if user is already logged in via cookie
-  useEffect(() => {
-    const userCookie = Cookies.get("user");
-    if (userCookie) {
-      try {
-        const userData = JSON.parse(userCookie);
-        setUser(userData);
-        navigate("/metrics");
-      } catch (error) {
-        // Clear invalid cookie
-        Cookies.remove("user");
-        Cookies.remove("token");
-      }
-    }
-  }, [setUser, navigate]);
+  // Show loading spinner while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-admin-gray flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  // Don't render login form if user is already authenticated
+  if (user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-admin-gray flex items-center justify-center p-4">
@@ -159,7 +149,7 @@ export default function Login() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12  rounded-lg flex items-center justify-center">
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center">
               <img src="/logo.png" alt="Grove Logo" className="w-12 h-12" />
             </div>
           </div>

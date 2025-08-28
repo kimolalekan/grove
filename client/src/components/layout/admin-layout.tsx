@@ -18,9 +18,9 @@ export default function AdminLayout({ children, title }: AdminLayoutProps) {
 
   // Redirect if not authenticated
   useEffect(() => {
-    // if (!isLoading && !user) {
-    //   setLocation("/login");
-    // }
+    if (!isLoading && !user) {
+      setLocation("/login");
+    }
   }, [user, isLoading, setLocation]);
 
   // Show loading state while checking authentication
@@ -33,9 +33,9 @@ export default function AdminLayout({ children, title }: AdminLayoutProps) {
   }
 
   // Don't render anything if not authenticated (will redirect)
-  // if (!user) {
-  //   return null;
-  // }
+  if (!user) {
+    return null;
+  }
 
   const admin = {
     name: user.name,

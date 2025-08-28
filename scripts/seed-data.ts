@@ -5,8 +5,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const client = new MeiliSearch({
-  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
-  apiKey: process.env.MEILISEARCH_KEY || "",
+  host: `${process.env.MEILISEARCH_HOST}`,
+  apiKey: process.env.MEILISEARCH_KEY,
 });
 
 const LOGS_INDEX = "logs";
@@ -406,6 +406,90 @@ const generateAlertRules = () => {
   return rules;
 };
 
+const generateSystemMetrics = (count: number) => {
+  const servers = [
+    "web-server-1",
+    "api-server-1",
+    "db-server-1",
+    "cache-server-1",
+  ];
+  const projects = ["web-app", "api-service", "mobile-app", "admin-dashboard"];
+
+  const metrics = [];
+  const now = Date.now();
+  const weekInMs = 7 * 24 * 60 * 60 * 1000;
+
+  for (let i = 0; i < count; i++) {
+    const server = servers[Math.floor(Math.random() * servers.length)];
+    const project = projects[Math.floor(Math.random() * projects.length)];
+
+    // Generate a timestamp within the last week, with business hours bias
+    let logTime = now - Math.random() * weekInMs;
+    const hour = new Date(logTime).getHours();
+    const dayOfWeek = new Date(logTime).getDay();
+    const isBusinessHour = hour >= 8 && hour <= 18;
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    if (!isBusinessHour || isWeekend) {
+      if (Math.random() > 0.3) {
+        logTime = now - Math.random() * 2 * 24 * 60 * 60 * 1000;
+        const newHour = 8 + Math.random() * 10;
+        logTime =
+          logTime -
+          (logTime % (24 * 60 * 60 * 1000)) +
+          newHour * 60 * 60 * 1000;
+      }
+    }
+
+    const timestamp = new Date(logTime).toISOString();
+
+    // Generate realistic system metrics
+    const cpuUsage = Math.max(5, Math.min(95, 20 + Math.random() * 75));
+    const memoryUsage = Math.max(10, Math.min(90, 30 + Math.random() * 60));
+    const diskUsage = Math.max(20, Math.min(95, 40 + Math.random() * 50));
+    const networkRx = Math.max(100, Math.random() * 5000);
+    const networkTx = Math.max(100, Math.random() * 3000);
+
+    const metric = {
+      id: `system_metric_${i + 1}`,
+      timestamp,
+      project,
+      source: "system_metrics",
+      server,
+      cpu: {
+        usage: cpuUsage,
+        cores: 4 + Math.floor(Math.random() * 8),
+      },
+      memory: {
+        usage_percent: memoryUsage,
+        total: `${Math.floor(Math.random() * 8 + 8)}GB`,
+        free: `${Math.floor((100 - memoryUsage) * 0.01 * (8 + Math.random() * 8))}GB`,
+      },
+      disk: {
+        usage: {
+          "/": {
+            usage_percent: diskUsage,
+            total: "500GB",
+            free: `${Math.floor((100 - diskUsage) * 5)}GB`,
+          },
+        },
+      },
+      network: {
+        eth0: {
+          rx_bytes: networkRx,
+          tx_bytes: networkTx,
+          rx_rate_bytes_per_sec: networkRx / 60,
+          tx_rate_bytes_per_sec: networkTx / 60,
+        },
+      },
+    };
+
+    metrics.push(metric);
+  }
+
+  return metrics;
+};
+
 const seedData = async () => {
   try {
     console.log("🌱 Starting data seeding...");
@@ -413,6 +497,9 @@ const seedData = async () => {
     // Generate sample data
     console.log("📊 Generating log entries...");
     const logEntries = generateLogEntries(1000); // More logs for better metrics
+
+    console.log("🖥️ Generating system metrics...");
+    const systemMetrics = generateSystemMetrics(500);
 
     console.log("🚨 Generating active alerts...");
     const activeAlerts = generateActiveAlerts(35); // More varied alerts
@@ -436,7 +523,7 @@ const seedData = async () => {
 
     // Seed logs
     console.log("📝 Seeding log entries...");
-    await logsIndex.addDocuments(logEntries);
+    await logsIndex.addDocuments([...logEntries, ...systemMetrics]);
 
     // Seed active alerts
     console.log("🚨 Seeding active alerts...");
@@ -448,6 +535,7 @@ const seedData = async () => {
 
     console.log("✅ Data seeding completed successfully!");
     console.log(`   - ${logEntries.length} log entries`);
+    console.log(`   - ${systemMetrics.length} system metrics`);
     console.log(`   - ${activeAlerts.length} active alerts`);
     console.log(`   - ${alertRules.length} alert rules`);
   } catch (error) {

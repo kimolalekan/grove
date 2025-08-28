@@ -27,7 +27,6 @@ import {
   Database,
   Clock,
   RefreshCw,
-  Calendar,
   BarChart3,
   Activity,
   Loader2,
@@ -64,9 +63,7 @@ const fetchOverviewMetrics = async (timeRange: string, project?: string) => {
     throw new Error("Failed to fetch overview metrics");
   }
   const data = await response.json();
-  const result = data.data;
-
-  return result;
+  return data.data;
 };
 
 const fetchPerformanceMetrics = async (timeRange: string, project?: string) => {
@@ -83,15 +80,20 @@ const fetchPerformanceMetrics = async (timeRange: string, project?: string) => {
     throw new Error("Failed to fetch performance metrics");
   }
   const data = await response.json();
-  const result = data.data;
-
-  return result;
+  return data.data;
 };
 
-const fetchResourceMetrics = async (timeRange: string, project?: string) => {
+const fetchResourceMetrics = async (
+  timeRange: string,
+  project?: string,
+  server?: string,
+) => {
   const params = new URLSearchParams({ timeRange });
   if (project && project !== "all") {
     params.append("project", project);
+  }
+  if (server) {
+    params.append("server", server);
   }
   const response = await fetch(`/api/metrics/resources?${params}`, {
     headers: {
@@ -102,9 +104,7 @@ const fetchResourceMetrics = async (timeRange: string, project?: string) => {
     throw new Error("Failed to fetch resource metrics");
   }
   const data = await response.json();
-  const result = data.data;
-
-  return result;
+  return data.data;
 };
 
 const fetchLogCounts = async (timeRange: string, project?: string) => {
@@ -113,25 +113,57 @@ const fetchLogCounts = async (timeRange: string, project?: string) => {
     if (project && project !== "all") {
       params.append("project", project);
     }
-
     const response = await fetch(`/api/logs/stats?${params}`, {
       headers: {
         Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
       },
     });
-
     if (!response.ok) {
       throw new Error("Failed to fetch log counts");
     }
-
     const data = await response.json();
-    const counts = data.data || { info: 0, warning: 0, error: 0 };
-
-    return counts;
+    return data.data || { info: 0, warning: 0, error: 0, total: 0 };
   } catch (error) {
     console.error("Failed to fetch log counts:", error);
     return { info: 0, warning: 0, error: 0, total: 0 };
   }
+};
+
+const fetchActiveAlerts = async (timeRange: string, project?: string) => {
+  try {
+    const params = new URLSearchParams({ timeRange });
+    if (project && project !== "all") {
+      params.append("project", project);
+    }
+    const response = await fetch(`/api/metrics/alerts?${params}`, {
+      headers: {
+        Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch active alerts");
+    }
+    const data = await response.json();
+    return data.data || { totalActiveAlerts: 0 };
+  } catch (error) {
+    console.error("Failed to fetch active alerts:", error);
+    return { totalActiveAlerts: 0 };
+  }
+};
+
+// Format time range for display
+const formatTimeRange = (timeRange: string) => {
+  const timeRangeMap: { [key: string]: string } = {
+    "1h": "Last hour",
+    "24h": "Last 24 hours",
+    "7d": "Last 7 days",
+    "30d": "Last 30 days",
+    "60d": "Last 60 days",
+    "90d": "Last 90 days",
+    "180d": "Last 180 days",
+    "365d": "Last 365 days",
+  };
+  return timeRangeMap[timeRange] || timeRange;
 };
 
 // Chart Components
@@ -142,12 +174,11 @@ const LineChart = ({
   data: number[];
   color?: string;
 }) => {
-  // Validate data
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="w-full h-[200px] flex items-center justify-center border-2 border-dashed border-gray-200 rounded-lg">
         <div className="text-center p-4">
-          <div className="text-gray-500 mb-2">📊 No chart data available</div>
+          <div className="text-gray-500 mb-2">No data available</div>
           <div className="text-sm text-gray-400">
             {!data
               ? "Data not loaded"
@@ -159,24 +190,11 @@ const LineChart = ({
       </div>
     );
   }
-
-  // Transform data for Recharts with time-based labels
-  const chartData = data.map((value, index) => {
-    const totalPoints = data.length;
-    const timeLabel =
-      totalPoints <= 24
-        ? `${index + 1}h`
-        : totalPoints <= 7
-          ? `Day ${index + 1}`
-          : `${index + 1}`;
-
-    return {
-      index,
-      time: timeLabel,
-      value: typeof value === "number" && !isNaN(value) ? value : 0,
-    };
-  });
-
+  const chartData = data.map((value, index) => ({
+    index,
+    time: `${index + 1}`,
+    value: typeof value === "number" && !isNaN(value) ? value : 0,
+  }));
   const colorMap = {
     blue: "#3b82f6",
     red: "#ef4444",
@@ -184,7 +202,6 @@ const LineChart = ({
     orange: "#f97316",
     green: "#10b981",
   };
-
   return (
     <div className="w-full h-[200px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -204,7 +221,7 @@ const LineChart = ({
             tickFormatter={(value) => value.toLocaleString()}
           />
           <Tooltip
-            labelFormatter={(label) => `Time: ${label}`}
+            labelFormatter={(label) => `Interval: ${label}`}
             formatter={(value: any) => [
               typeof value === "number" ? value.toLocaleString() : value,
               "Value",
@@ -237,12 +254,11 @@ const BarChart = ({
   data: number[];
   color?: string;
 }) => {
-  // Validate data
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="w-full h-[200px] flex items-center justify-center border-2 border-dashed border-gray-200 rounded-lg">
         <div className="text-center p-4">
-          <div className="text-gray-500 mb-2">📊 No chart data available</div>
+          <div className="text-gray-500 mb-2">No data available</div>
           <div className="text-sm text-gray-400">
             {!data
               ? "Data not loaded"
@@ -254,24 +270,11 @@ const BarChart = ({
       </div>
     );
   }
-
-  // Transform data for Recharts with time-based labels
-  const chartData = data.map((value, index) => {
-    const totalPoints = data.length;
-    const timeLabel =
-      totalPoints <= 24
-        ? `${index + 1}h`
-        : totalPoints <= 7
-          ? `Day ${index + 1}`
-          : `${index + 1}`;
-
-    return {
-      index,
-      time: timeLabel,
-      value: typeof value === "number" && !isNaN(value) ? value : 0,
-    };
-  });
-
+  const chartData = data.map((value, index) => ({
+    index,
+    time: `${index + 1}`,
+    value: typeof value === "number" && !isNaN(value) ? value : 0,
+  }));
   const colorMap = {
     blue: "#3b82f6",
     green: "#10b981",
@@ -279,7 +282,6 @@ const BarChart = ({
     orange: "#f97316",
     red: "#ef4444",
   };
-
   return (
     <div className="w-full h-[200px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -299,7 +301,7 @@ const BarChart = ({
             tickFormatter={(value) => value.toLocaleString()}
           />
           <Tooltip
-            labelFormatter={(label) => `Time: ${label}`}
+            labelFormatter={(label) => `Interval: ${label}`}
             formatter={(value: any) => [
               typeof value === "number" ? value.toLocaleString() : value,
               "Value",
@@ -324,9 +326,8 @@ const BarChart = ({
 
 export default function Metrics() {
   const { toast } = useToast();
-  const [timeRange, setTimeRange] = useState("1");
+  const [timeRange, setTimeRange] = useState("24h");
   const [selectedProject, setSelectedProject] = useState("all");
-  const [selectedSource, setSelectedSource] = useState("all");
 
   // Fetch projects
   const {
@@ -348,30 +349,30 @@ export default function Metrics() {
       return data.data || [];
     },
     retry: 2,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch sources
+  // Fetch servers
   const {
-    data: sourcesData,
-    isLoading: sourcesLoading,
-    error: sourcesError,
+    data: serversData,
+    isLoading: serversLoading,
+    error: serversError,
   } = useQuery({
-    queryKey: ["metrics-sources"],
+    queryKey: ["metrics-servers"],
     queryFn: async () => {
-      const response = await fetch("/api/logs/sources", {
+      const response = await fetch("/api/logs/servers", {
         headers: {
           Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
         },
       });
       if (!response.ok) {
-        throw new Error("Failed to fetch sources");
+        throw new Error("Failed to fetch servers");
       }
       const data = await response.json();
       return data.data || [];
     },
     retry: 2,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
   // Fetch overview metrics
@@ -414,14 +415,19 @@ export default function Metrics() {
     error: logCountsError,
     refetch: refetchLogCounts,
   } = useQuery({
-    queryKey: [
-      "metrics",
-      "logCounts",
-      timeRange,
-      selectedProject,
-      selectedSource,
-    ],
-    queryFn: () => fetchLogCounts(timeRange, selectedProject, selectedSource),
+    queryKey: ["metrics", "logCounts", timeRange, selectedProject],
+    queryFn: () => fetchLogCounts(timeRange, selectedProject),
+  });
+
+  // Fetch active alerts
+  const {
+    data: alertsData,
+    isLoading: isLoadingAlerts,
+    error: alertsError,
+    refetch: refetchAlerts,
+  } = useQuery({
+    queryKey: ["metrics", "activeAlerts", timeRange, selectedProject],
+    queryFn: () => fetchActiveAlerts(timeRange, selectedProject),
   });
 
   const refreshAllData = () => {
@@ -429,6 +435,7 @@ export default function Metrics() {
     refetchPerformance();
     refetchResources();
     refetchLogCounts();
+    refetchAlerts();
   };
 
   // Show errors in toast if any
@@ -443,16 +450,7 @@ export default function Metrics() {
         variant: "destructive",
       });
     }
-    if (sourcesError) {
-      toast({
-        title: "Failed to load sources",
-        description:
-          sourcesError instanceof Error
-            ? sourcesError.message
-            : "Unknown error",
-        variant: "destructive",
-      });
-    }
+
     if (logCountsError) {
       toast({
         title: "Failed to load log counts",
@@ -463,35 +461,22 @@ export default function Metrics() {
         variant: "destructive",
       });
     }
-  }, [projectsError, logCountsError, sourcesError, toast]);
+    if (alertsError) {
+      toast({
+        title: "Failed to load active alerts",
+        description:
+          alertsError instanceof Error ? alertsError.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  }, [projectsError, logCountsError, alertsError, toast]);
 
   const isLoading =
     isLoadingOverview ||
     isLoadingPerformance ||
     isLoadingResources ||
-    isLoadingLogCounts;
-
-  const getTrendIndicator = (current: number, previous: number) => {
-    if (!previous) return null;
-
-    const trend = current > previous;
-    const Icon = trend ? TrendingUp : TrendingDown;
-    const color = trend ? "text-green-500" : "text-red-500";
-    const text = trend ? "+" : "";
-    const percentage = Math.abs(
-      ((current - previous) / previous) * 100,
-    ).toFixed(1);
-
-    return (
-      <div className={`flex items-center gap-1 ${color}`}>
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium">
-          {text}
-          {percentage}%
-        </span>
-      </div>
-    );
-  };
+    isLoadingLogCounts ||
+    isLoadingAlerts;
 
   const ErrorDisplay = ({
     error,
@@ -556,28 +541,21 @@ export default function Metrics() {
                 )}
               </SelectContent>
             </Select>
-            <Select
-              value={timeRange}
-              onValueChange={(value) => {
-                setTimeRange(value);
-                // resetPagination();
-              }}
-            >
+            <Select value={timeRange} onValueChange={setTimeRange}>
               <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Time Range" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">Last hour</SelectItem>
-                <SelectItem value="24">Last 24 hours</SelectItem>
-                <SelectItem value="7">Last 7 days</SelectItem>
-                <SelectItem value="30">Last 30 days</SelectItem>
-                <SelectItem value="60">Last 60 days</SelectItem>
-                <SelectItem value="90">Last 90 days</SelectItem>
-                <SelectItem value="180">Last 180 days</SelectItem>
-                <SelectItem value="365">Last 365 days</SelectItem>
+                <SelectItem value="1h">Last hour</SelectItem>
+                <SelectItem value="24h">Last 24 hours</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="60d">Last 60 days</SelectItem>
+                <SelectItem value="90d">Last 90 days</SelectItem>
+                <SelectItem value="180d">Last 180 days</SelectItem>
+                <SelectItem value="365d">Last 365 days</SelectItem>
               </SelectContent>
             </Select>
-
             <Button onClick={refreshAllData} disabled={isLoading}>
               <RefreshCw
                 className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
@@ -586,7 +564,6 @@ export default function Metrics() {
             </Button>
           </div>
         </div>
-
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="overview" className="flex items-center gap-2">
@@ -615,6 +592,7 @@ export default function Metrics() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  {/* Requests/Min Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -627,12 +605,13 @@ export default function Metrics() {
                         {overviewData?.requestsPerMinute?.toLocaleString() ||
                           "0"}
                       </div>
-                      {getTrendIndicator(
-                        overviewData?.requestsPerMinute || 0,
-                        overviewData?.requestsPerMinute * 0.9 || 0,
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Error Rate Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -644,12 +623,13 @@ export default function Metrics() {
                       <div className="text-2xl font-bold text-red-500">
                         {overviewData?.errorRate?.toFixed(1) || "0"}%
                       </div>
-                      {getTrendIndicator(
-                        overviewData?.errorRate || 0,
-                        (overviewData?.errorRate || 0) * 1.2,
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Avg. Response Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -661,31 +641,44 @@ export default function Metrics() {
                       <div className="text-2xl font-bold">
                         {overviewData?.avgResponseTime || 0}ms
                       </div>
-                      {getTrendIndicator(
-                        overviewData?.avgResponseTime || 0,
-                        (overviewData?.avgResponseTime || 0) * 1.1,
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Active Alerts Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
-                        Uptime
+                        Active Alerts
                       </CardTitle>
-                      <Database className="h-4 w-4 text-muted-foreground" />
+                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">
-                        {overviewData?.uptime || 99.95}%
+                      <div className="text-2xl font-bold text-yellow-600">
+                        {isLoadingAlerts ? (
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        ) : alertsError ? (
+                          <button
+                            onClick={() => refetchAlerts()}
+                            className="flex items-center gap-2 text-red-500 hover:text-red-700 transition-colors"
+                            title="Click to retry loading active alerts"
+                          >
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="text-sm">Retry</span>
+                          </button>
+                        ) : (
+                          alertsData?.totalActiveAlerts?.toLocaleString() || "0"
+                        )}
                       </div>
-                      <Badge
-                        variant="outline"
-                        className="bg-green-50 text-green-700 border-green-200"
-                      >
-                        Stable
-                      </Badge>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Info Logs Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -710,17 +703,13 @@ export default function Metrics() {
                           logCountsData?.info?.toLocaleString() || "0"
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {timeRange === "1h"
-                          ? "Last hour"
-                          : timeRange === "24h"
-                            ? "Last 24 hours"
-                            : timeRange === "7d"
-                              ? "Last 7 days"
-                              : "Last 30 days"}
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Warning Logs Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -745,17 +734,13 @@ export default function Metrics() {
                           logCountsData?.warning?.toLocaleString() || "0"
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {timeRange === "1h"
-                          ? "Last hour"
-                          : timeRange === "24h"
-                            ? "Last 24 hours"
-                            : timeRange === "7d"
-                              ? "Last 7 days"
-                              : "Last 30 days"}
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Error Logs Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -780,17 +765,13 @@ export default function Metrics() {
                           logCountsData?.error?.toLocaleString() || "0"
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {timeRange === "1h"
-                          ? "Last hour"
-                          : timeRange === "24h"
-                            ? "Last 24 hours"
-                            : timeRange === "7d"
-                              ? "Last 7 days"
-                              : "Last 30 days"}
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
+
+                  {/* Total Logs Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">
@@ -815,19 +796,14 @@ export default function Metrics() {
                           logCountsData?.total?.toLocaleString() || "0"
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {timeRange === "1h"
-                          ? "Last hour"
-                          : timeRange === "24h"
-                            ? "Last 24 hours"
-                            : timeRange === "7d"
-                              ? "Last 7 days"
-                              : "Last 30 days"}
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeRange(timeRange)}
+                      </p>
                     </CardContent>
                   </Card>
                 </div>
 
+                {/* Charts */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <Card>
                     <CardHeader>
@@ -992,40 +968,51 @@ export default function Metrics() {
                       CPU Usage
                     </CardTitle>
                     <CardDescription>
-                      Server CPU utilization over time
+                      {resourceData?.hasRealData
+                        ? "Server CPU utilization over time"
+                        : "No system metrics data available"}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <LineChart
-                      data={resourceData?.cpuUsageData || []}
-                      color="orange"
-                    />
-                    <div className="flex justify-between items-center mt-4">
-                      <div>
-                        <div className="text-2xl font-bold">
-                          {resourceData?.currentCpuUsage || 0}%
+                    {resourceData?.hasRealData ? (
+                      <>
+                        <LineChart
+                          data={resourceData?.cpuUsageData || []}
+                          color="orange"
+                        />
+                        <div className="flex justify-between items-center mt-4">
+                          <div>
+                            <div className="text-2xl font-bold">
+                              {resourceData?.currentCpuUsage || 0}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              Current usage
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Peak
+                            </div>
+                            <div className="font-medium">
+                              {resourceData?.maxCpuUsage || 0}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Avg.
+                            </div>
+                            <div className="font-medium">
+                              {resourceData?.avgCpuUsage || 0}%
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          Current usage
-                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No system metrics data available. Install the system
+                        metrics collector to monitor server resources.
                       </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">
-                          Peak
-                        </div>
-                        <div className="font-medium">
-                          {resourceData?.maxCpuUsage || 0}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">
-                          Avg.
-                        </div>
-                        <div className="font-medium">
-                          {resourceData?.avgCpuUsage || 0}%
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card>
@@ -1035,40 +1022,51 @@ export default function Metrics() {
                       Memory Usage
                     </CardTitle>
                     <CardDescription>
-                      Server memory utilization over time
+                      {resourceData?.hasRealData
+                        ? "Server memory utilization over time"
+                        : "No system metrics data available"}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <LineChart
-                      data={resourceData?.memoryUsageData || []}
-                      color="indigo"
-                    />
-                    <div className="flex justify-between items-center mt-4">
-                      <div>
-                        <div className="text-2xl font-bold">
-                          {resourceData?.currentMemoryUsage || 0}%
+                    {resourceData?.hasRealData ? (
+                      <>
+                        <LineChart
+                          data={resourceData?.memoryUsageData || []}
+                          color="indigo"
+                        />
+                        <div className="flex justify-between items-center mt-4">
+                          <div>
+                            <div className="text-2xl font-bold">
+                              {resourceData?.currentMemoryUsage || 0}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              Current usage
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Peak
+                            </div>
+                            <div className="font-medium">
+                              {resourceData?.maxMemoryUsage || 0}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Avg.
+                            </div>
+                            <div className="font-medium">
+                              {resourceData?.avgMemoryUsage || 0}%
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          Current usage
-                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No system metrics data available. Install the system
+                        metrics collector to monitor server resources.
                       </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">
-                          Peak
-                        </div>
-                        <div className="font-medium">
-                          {resourceData?.maxMemoryUsage || 0}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">
-                          Avg.
-                        </div>
-                        <div className="font-medium">
-                          {resourceData?.avgMemoryUsage || 0}%
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

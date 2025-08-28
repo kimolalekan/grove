@@ -7,3 +7,4 @@ vite.config.ts.*
 data.ms
 dumps
 .env
+grove.json

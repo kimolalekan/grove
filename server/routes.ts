@@ -3,6 +3,8 @@ import express, { Express, Request, Response, NextFunction } from "express";
 import { createServer, Server } from "http";
 import { MeiliSearch, Index, SearchParams } from "meilisearch";
 import bcrypt from "bcryptjs";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 // Define TypeScript interfaces
 interface ApiKey {
@@ -11,6 +13,11 @@ interface ApiKey {
   created: string;
   lastUsed: string | null;
   status: "active" | "revoked";
+}
+
+interface ApiConfig {
+  user: number;
+  api_key: number;
 }
 
 interface ApiKeyCreateRequest {
@@ -130,6 +137,9 @@ declare global {
         sortBy?: string;
         limit?: number;
         offset?: number;
+        timeRange?: string;
+        from?: string;
+        to?: string;
       };
       alertSearchParams?: {
         search?: string;
@@ -298,7 +308,18 @@ const parseLogSearchParams = (
   res: Response,
   next: NextFunction,
 ): void => {
-  const { search, source, level, project, sortBy, limit, offset } = req.query;
+  const {
+    search,
+    source,
+    level,
+    project,
+    sortBy,
+    limit,
+    offset,
+    timeRange,
+    from,
+    to,
+  } = req.query;
   req.logSearchParams = {
     search: search as string | undefined,
     source: source as string | undefined,
@@ -307,6 +328,9 @@ const parseLogSearchParams = (
     sortBy: sortBy as string | undefined,
     limit: limit ? parseInt(limit as string, 10) : undefined,
     offset: offset ? parseInt(offset as string, 10) : undefined,
+    timeRange: timeRange as string | undefined,
+    from: from as string | undefined,
+    to: to as string | undefined,
   };
   next();
 };
@@ -413,6 +437,29 @@ const isValidPassword = (
   return { valid: true };
 };
 
+const generateApiKey = (): string => {
+  const prefix = "sk_";
+  const randomPart =
+    Math.random().toString(36).substring(2, 20) +
+    Math.random().toString(36).substring(2, 15);
+  return prefix + randomPart;
+};
+
+function getTimeRangeMs(timeRange: string): number {
+  const timeRangeMap: { [key: string]: number } = {
+    "1h": 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
+    "30d": 30 * 24 * 60 * 60 * 1000,
+    "60d": 60 * 24 * 60 * 60 * 1000,
+    "90d": 90 * 24 * 60 * 60 * 1000,
+    "180d": 180 * 24 * 60 * 60 * 1000,
+    "365d": 365 * 24 * 60 * 60 * 1000,
+  };
+
+  return timeRangeMap[timeRange] || timeRangeMap["24h"];
+}
+
 // Helper function to check MeiliSearch connectivity
 const checkMeiliSearchConnection = async (): Promise<void> => {
   try {
@@ -460,6 +507,64 @@ const waitForIndex = async (
     `Index ${indexName} not available after ${maxRetries} retries`,
   );
 };
+
+async function initializeDefaults() {
+  try {
+    // First, check if grove.json exists
+    let configExists = true;
+    try {
+      const currentDir = process.cwd();
+      const filePath = path.join(currentDir, "grove.json");
+      await fs.access(filePath);
+    } catch {
+      configExists = false;
+    }
+
+    // If file doesn't exist, create it with defaults
+    if (!configExists) {
+      const apiKeyData: ApiKey = {
+        key: generateApiKey(),
+        name: "Grove API Key",
+        status: "active",
+        created: new Date().toISOString(),
+        lastUsed: null,
+      };
+
+      const hashedPassword = await hashPassword("Grove12345");
+      const now = new Date().toISOString();
+
+      const userData: User = {
+        id: generateUserId(),
+        name: "Grove Admin",
+        email: "admin@grove.dev",
+        password: hashedPassword,
+        role: "admin",
+        status: "active",
+        lastLogin: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // Add to Meilisearch
+      await client.index(API_KEYS_INDEX).addDocuments([apiKeyData]);
+      await client.index(USERS_INDEX).addDocuments([userData]);
+
+      // Create config file
+      const _config: ApiConfig = { user: 1, api_key: 1 };
+      const _data = JSON.stringify(_config, null, 2);
+      const currentDir = process.cwd();
+      const filePath = path.join(currentDir, "grove.json");
+      await fs.writeFile(filePath, _data, "utf-8");
+
+      console.log("Default user and API key created successfully");
+    } else {
+      console.log("grove.json already exists, skipping initialization");
+    }
+  } catch (error) {
+    console.error("Error initializing defaults:", error);
+    throw error;
+  }
+}
 
 // Initialize index settings with proper sortable and filterable attributes
 const initializeIndexSettings = async (): Promise<void> => {
@@ -671,6 +776,13 @@ const initializeIndexSettings = async (): Promise<void> => {
     });
     throw error; // Re-throw to let caller know initialization failed
   }
+
+  try {
+    await initializeDefaults();
+  } catch (error: any) {
+    console.error("Failed to initialize indexes:", error);
+    throw error;
+  }
 };
 
 const registerRoutes = async (app: Express): Promise<Server> => {
@@ -738,7 +850,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
   // POST /api/apikeys - Create a new API key
   app.post(
     "/api/apikeys",
-    // authenticateApiKey,
+    authenticateApiKey,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const { name, key, status = "active" }: ApiKeyCreateRequest = req.body;
@@ -1353,6 +1465,9 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           sortBy = "timestamp:desc",
           limit = 100,
           offset = 0,
+          timeRange,
+          from,
+          to,
         } = req.logSearchParams || {};
 
         // Validate sortBy parameter
@@ -1395,6 +1510,53 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         }
         if (project) {
           filters.push(`project = "${project}"`);
+        }
+
+        // Handle time filtering
+        if (timeRange && timeRange !== "custom") {
+          const now = new Date();
+          let fromDate = new Date();
+
+          switch (timeRange) {
+            case "1":
+              fromDate.setHours(now.getHours() - 1);
+              break;
+            case "6":
+              fromDate.setHours(now.getHours() - 6);
+              break;
+            case "12":
+              fromDate.setHours(now.getHours() - 12);
+              break;
+            case "24":
+              fromDate.setDate(now.getDate() - 1);
+              break;
+            case "72":
+              fromDate.setDate(now.getDate() - 3);
+              break;
+            case "168":
+              fromDate.setDate(now.getDate() - 7);
+              break;
+            default:
+              fromDate.setDate(now.getDate() - 1);
+          }
+
+          filters.push(`timestamp >= "${fromDate.toISOString()}"`);
+          filters.push(`timestamp <= "${now.toISOString()}"`);
+        } else if (timeRange === "custom" && (from || to)) {
+          if (from) {
+            const fromDate = new Date(from);
+            if (!isNaN(fromDate.getTime())) {
+              filters.push(`timestamp >= "${fromDate.toISOString()}"`);
+            }
+          }
+          if (to) {
+            const toDate = new Date(to);
+            if (!isNaN(toDate.getTime())) {
+              // Add 23:59:59 to the end of the day for the "to" date
+              toDate.setHours(23, 59, 59, 999);
+              filters.push(`timestamp <= "${toDate.toISOString()}"`);
+            }
+          }
         }
 
         // Validate and sanitize limit and offset
@@ -1442,7 +1604,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
     authenticateApiKey,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const { source, message, level, details } = req.body;
+        const { source, message, level, details, project } = req.body;
 
         // Validate required fields
         if (!source || typeof source !== "string") {
@@ -1472,6 +1634,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         // Generate timestamp and ID if not provided
         const newLog: LogEntry = {
           id: req.body.id || Date.now(),
+          project: project || "default",
           timestamp: req.body.timestamp || new Date().toISOString(),
           source,
           message,
@@ -1504,7 +1667,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
 
         // Get a large sample of documents to extract unique projects
         const results = await index.search("", {
-          limit: 1000,
+          limit: 100,
           attributesToRetrieve: ["project"],
         });
 
@@ -1581,32 +1744,32 @@ const registerRoutes = async (app: Express): Promise<Server> => {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const { project, source, timeRange = "24h" } = req.query;
-
-        // Calculate time filter based on timeRange
         const now = new Date();
-        let fromDate = new Date();
-        switch (timeRange) {
-          case "1h":
-            fromDate.setHours(now.getHours() - 1);
-            break;
-          case "24h":
-            fromDate.setDate(now.getDate() - 1);
-            break;
-          case "7d":
-            fromDate.setDate(now.getDate() - 7);
-            break;
-          case "30d":
-            fromDate.setDate(now.getDate() - 30);
-            break;
-          default:
-            fromDate.setDate(now.getDate() - 1);
-        }
+        const timeRangeMs = {
+          "1h": 60 * 60 * 1000,
+          "24h": 24 * 60 * 60 * 1000,
+          "7d": 7 * 24 * 60 * 60 * 1000,
+          "30d": 30 * 24 * 60 * 60 * 1000,
+          "60d": 60 * 24 * 60 * 60 * 1000,
+          "90d": 90 * 24 * 60 * 60 * 1000,
+          "180d": 180 * 24 * 60 * 60 * 1000,
+          "365d": 365 * 24 * 60 * 60 * 1000,
+        };
+        const fromDate = new Date(
+          now.getTime() -
+            (timeRangeMs[timeRange as keyof typeof timeRangeMs] ||
+              timeRangeMs["24h"]),
+        );
+
+        console.log("Date range:", {
+          from: fromDate.toISOString(),
+          to: now.toISOString(),
+        });
 
         const index: Index = client.index(LOGS_INDEX);
         const levels = ["info", "warning", "error"];
         const counts: { [key: string]: number } = {};
 
-        // Base filters that apply to all queries
         const baseFilters: string[] = [];
         if (project && project !== "all") {
           baseFilters.push(`project = "${project}"`);
@@ -1614,38 +1777,61 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         if (source && source !== "all") {
           baseFilters.push(`source = "${source}"`);
         }
+        // Use ISO strings for timestamp filters
+        baseFilters.push(`timestamp >= "${fromDate.toISOString()}"`);
+        baseFilters.push(`timestamp <= "${now.toISOString()}"`);
 
-        // Add time filter using timestamp
-        baseFilters.push(`timestamp >= ${fromDate.getTime()}`);
-        baseFilters.push(`timestamp <= ${now.getTime()}`);
+        console.log("Base filters:", baseFilters);
 
         // Get counts for each level
         for (const level of levels) {
           const filters: string[] = [...baseFilters, `level = "${level}"`];
-
           const searchOptions = {
             filter: filters.join(" AND "),
-            limit: 0, // We only want the count
+            limit: 0,
           };
-
-          const results = await index.search("", searchOptions);
-          counts[level] = results.estimatedTotalHits || 0;
+          console.log(
+            `Searching for level ${level} with filter:`,
+            filters.join(" AND "),
+          );
+          try {
+            const results = await index.search("", searchOptions);
+            counts[level] = results.estimatedTotalHits || 0;
+            console.log(`Level ${level} count:`, counts[level]);
+          } catch (levelError) {
+            console.error(`Error searching for level ${level}:`, levelError);
+            counts[level] = 0;
+          }
         }
 
-        // Get total count (all levels)
+        // Get total count
         const totalSearchOptions = {
           filter: baseFilters.join(" AND "),
-          limit: 0, // We only want the count
+          limit: 0,
         };
-
-        const totalResults = await index.search("", totalSearchOptions);
-        counts.total = totalResults.estimatedTotalHits || 0;
+        console.log("Total search filter:", baseFilters.join(" AND "));
+        try {
+          const totalResults = await index.search("", totalSearchOptions);
+          counts.total = totalResults.estimatedTotalHits || 0;
+          console.log("Total count:", counts.total);
+        } catch (totalError) {
+          console.error("Error getting total count:", totalError);
+          counts.total = 0;
+        }
 
         res.json({
           success: true,
           data: counts,
+          debug: {
+            dateRange: {
+              from: fromDate.toISOString(),
+              to: now.toISOString(),
+            },
+            filters: baseFilters,
+          },
         });
       } catch (error: any) {
+        console.error("Error in /api/logs/stats:", error);
         next(error);
       }
     },
@@ -2337,7 +2523,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         // Also get servers from logs as fallback
         try {
           const logsIndex = client.index(LOGS_INDEX);
-          const logResults = await systemIndex.search("", {
+          const logResults = await logsIndex.search("", {
             facets: ["project"],
             limit: 0,
           });
@@ -2345,7 +2531,7 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           const logProjects = Object.keys(
             logResults.facetDistribution?.project || {},
           );
-          projects = [...new Set([...projects, ...logProjects])];
+          projects = Array.from(new Set([...projects, ...logProjects]));
         } catch (logError) {
           console.log("Could not fetch projects from logs index");
         }
@@ -2380,8 +2566,6 @@ const registerRoutes = async (app: Express): Promise<Server> => {
       try {
         const { timeRange = "24h", project } = req.query;
         const index = client.index(LOGS_INDEX);
-
-        // Calculate time range
         const now = new Date();
         const timeRangeMs = {
           "1h": 60 * 60 * 1000,
@@ -2393,28 +2577,20 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           "180d": 180 * 24 * 60 * 60 * 1000,
           "365d": 365 * 24 * 60 * 60 * 1000,
         };
-
         const startTime = new Date(
           now.getTime() -
             (timeRangeMs[timeRange as keyof typeof timeRangeMs] ||
               timeRangeMs["24h"]),
         );
-
-        // Build filter for logs - use ISO string format for timestamp
         let filter = `timestamp >= "${startTime.toISOString()}"`;
         if (project && project !== "all") {
           filter += ` AND project = "${project}"`;
         }
-
-        // Get all logs in time range
         const results = await index.search("", {
           filter,
           limit: 10000,
         });
-
         const logs = results.hits as any[];
-
-        // Calculate metrics
         const totalRequests = logs.length;
         const errorLogs = logs.filter(
           (log) =>
@@ -2423,7 +2599,6 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         );
         const errorRate =
           totalRequests > 0 ? (errorLogs.length / totalRequests) * 100 : 0;
-
         const responseTimes = logs
           .filter((log) => log.details?.duration)
           .map((log) => log.details.duration);
@@ -2434,11 +2609,14 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             : 0;
 
         // Calculate requests per minute
-        const timeRangeMinutes =
+        const timeRangeMinutes = Math.max(
+          1,
           (timeRangeMs[timeRange as keyof typeof timeRangeMs] ||
             timeRangeMs["24h"]) /
-          (1000 * 60);
-        const requestsPerMinute = totalRequests / timeRangeMinutes;
+            (1000 * 60),
+        );
+        const requestsPerMinute =
+          timeRangeMinutes > 0 ? totalRequests / timeRangeMinutes : 0;
 
         // Generate time series data (simplified)
         const intervals = 20;
@@ -2447,22 +2625,18 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             timeRangeMs["24h"]) / intervals;
         const requestData = [];
         const errorRateData = [];
-
         for (let i = 0; i < intervals; i++) {
           const intervalStart = new Date(startTime.getTime() + i * intervalMs);
           const intervalEnd = new Date(intervalStart.getTime() + intervalMs);
-
           const intervalLogs = logs.filter((log) => {
             const logTime = new Date(log.timestamp);
             return logTime >= intervalStart && logTime < intervalEnd;
           });
-
           const intervalErrors = intervalLogs.filter(
             (log) =>
               log.level === "error" ||
               (log.details?.statusCode && log.details.statusCode >= 400),
           );
-
           requestData.push(Math.max(0, intervalLogs.length));
           errorRateData.push(
             intervalLogs.length > 0
@@ -2475,10 +2649,10 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           success: true,
           data: {
             totalRequests: Math.round(totalRequests),
-            requestsPerMinute: Math.round(requestsPerMinute),
+            requestsPerMinute: parseFloat(requestsPerMinute.toFixed(2)), // Return as float with 2 decimal places
             errorRate: Math.round(errorRate * 100) / 100,
             avgResponseTime: Math.round(avgResponseTime),
-            uptime: 99.95, // Mock uptime - would come from system metrics
+            uptime: 99.98,
             requestData,
             errorRateData,
           },
@@ -2617,6 +2791,10 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           "24h": 24 * 60 * 60 * 1000,
           "7d": 7 * 24 * 60 * 60 * 1000,
           "30d": 30 * 24 * 60 * 60 * 1000,
+          "60d": 60 * 24 * 60 * 60 * 1000,
+          "90d": 90 * 24 * 60 * 60 * 1000,
+          "180d": 180 * 24 * 60 * 60 * 1000,
+          "365d": 365 * 24 * 60 * 60 * 1000,
         };
         const startTime = new Date(
           now.getTime() -
@@ -2624,34 +2802,25 @@ const registerRoutes = async (app: Express): Promise<Server> => {
               timeRangeMs["24h"]),
         );
 
-        let systemMetrics = null;
-        let useRealData = false;
+        // Use the logs index and filter for source = "system_metrics"
+        const logsIndex = client.index(LOGS_INDEX);
+        let filter = `source = "system_metrics" AND timestamp >= "${startTime.toISOString()}"`;
 
-        // Try to get real system metrics first
-        try {
-          const systemIndex = client.index("system_metrics");
-          let systemFilter = `timestamp >= "${startTime.toISOString()}"`;
-          if (project && project !== "all") {
-            systemFilter += ` AND project = "${project}"`;
-          }
-          if (server && server !== "all") {
-            systemFilter += ` AND server = "${server}"`;
-          }
-
-          const systemResults = await systemIndex.search("", {
-            filter: systemFilter,
-            limit: 1000,
-            sort: ["timestamp:asc"],
-          });
-
-          if (systemResults.hits.length > 0) {
-            useRealData = true;
-            systemMetrics = systemResults.hits as any[];
-            console.log(`Found ${systemMetrics.length} system metrics records`);
-          }
-        } catch (systemError) {
-          console.log("System metrics index not available, using mock data");
+        if (project && project !== "all") {
+          filter += ` AND project = "${project}"`;
         }
+        if (server && server !== "all") {
+          filter += ` AND server = "${server}"`;
+        }
+
+        const results = await logsIndex.search("", {
+          filter,
+          limit: 1000,
+          sort: ["timestamp:asc"],
+        });
+
+        const systemMetrics = results.hits as any[];
+        const useRealData = systemMetrics.length > 0;
 
         let cpuUsageData: number[] = [];
         let memoryUsageData: number[] = [];
@@ -2669,14 +2838,13 @@ const registerRoutes = async (app: Express): Promise<Server> => {
           (timeRangeMs[timeRange as keyof typeof timeRangeMs] ||
             timeRangeMs["24h"]) / intervals;
 
-        if (useRealData && systemMetrics) {
+        if (useRealData) {
           // Process real system metrics
           for (let i = 0; i < intervals; i++) {
             const intervalStart = new Date(
               startTime.getTime() + i * intervalMs,
             );
             const intervalEnd = new Date(intervalStart.getTime() + intervalMs);
-
             const intervalMetrics = systemMetrics.filter((metric) => {
               const metricTime = new Date(metric.timestamp);
               return metricTime >= intervalStart && metricTime < intervalEnd;
@@ -2717,11 +2885,9 @@ const registerRoutes = async (app: Express): Promise<Server> => {
               diskUsageData.push(diskUsage);
               networkData.push(Math.round(networkIn / 1024)); // Convert to KB/s
             } else {
-              // No data for this interval, use last known values or 0
-              const lastCpu = cpuUsageData[cpuUsageData.length - 1] || 0;
-              const lastMem = memoryUsageData[memoryUsageData.length - 1] || 0;
-              cpuUsageData.push(lastCpu);
-              memoryUsageData.push(lastMem);
+              // No data for this interval, push 0
+              cpuUsageData.push(0);
+              memoryUsageData.push(0);
               diskUsageData.push(0);
               networkData.push(0);
             }
@@ -2741,64 +2907,20 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             memoryUsageData.reduce((sum, val) => sum + val, 0) /
               memoryUsageData.length,
           );
-        } else {
-          // Fallback to log-based mock data
-          const logsIndex = client.index(LOGS_INDEX);
-          let logFilter = `timestamp >= "${startTime.toISOString()}"`;
-          if (project && project !== "all") {
-            logFilter += ` AND project = "${project}"`;
-          }
+        }
 
-          const logResults = await logsIndex.search("", {
-            filter: logFilter,
-            limit: 1000,
-          });
-
-          const logs = logResults.hits as any[];
-
-          // Generate mock resource metrics based on request load
-          for (let i = 0; i < intervals; i++) {
-            const intervalStart = new Date(
-              startTime.getTime() + i * intervalMs,
-            );
-            const intervalEnd = new Date(intervalStart.getTime() + intervalMs);
-
-            const intervalLogs = logs.filter((log) => {
-              const logTime = new Date(log.timestamp);
-              return logTime >= intervalStart && logTime < intervalEnd;
-            });
-
-            // Mock CPU usage based on request load (higher load = higher CPU)
-            const baseLoad = intervalLogs.length;
-            const cpuUsage = Math.min(
-              95,
-              Math.max(20, 30 + baseLoad * 2 + Math.random() * 15),
-            );
-            const memoryUsage = Math.min(
-              90,
-              Math.max(30, 50 + baseLoad * 1.5 + Math.random() * 10),
-            );
-
-            cpuUsageData.push(Math.round(cpuUsage));
-            memoryUsageData.push(Math.round(memoryUsage));
-            diskUsageData.push(Math.round(Math.random() * 20 + 40)); // Mock disk usage
-            networkData.push(Math.round(baseLoad * 10 + Math.random() * 50)); // Mock network
-          }
-
-          // Calculate current values (last interval)
-          currentCpuUsage = cpuUsageData[cpuUsageData.length - 1] || 60;
-          currentMemoryUsage =
-            memoryUsageData[memoryUsageData.length - 1] || 70;
-          maxCpuUsage = Math.max(...cpuUsageData);
-          maxMemoryUsage = Math.max(...memoryUsageData);
-          avgCpuUsage = Math.round(
-            cpuUsageData.reduce((sum, val) => sum + val, 0) /
-              cpuUsageData.length,
-          );
-          avgMemoryUsage = Math.round(
-            memoryUsageData.reduce((sum, val) => sum + val, 0) /
-              memoryUsageData.length,
-          );
+        // If no real data, return zeroed values
+        if (!useRealData) {
+          cpuUsageData = Array(intervals).fill(0);
+          memoryUsageData = Array(intervals).fill(0);
+          diskUsageData = Array(intervals).fill(0);
+          networkData = Array(intervals).fill(0);
+          currentCpuUsage = 0;
+          currentMemoryUsage = 0;
+          maxCpuUsage = 0;
+          maxMemoryUsage = 0;
+          avgCpuUsage = 0;
+          avgMemoryUsage = 0;
         }
 
         res.json({
@@ -2811,15 +2933,13 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             currentMemoryUsage: Math.round(currentMemoryUsage * 100) / 100,
             maxMemoryUsage: Math.round(maxMemoryUsage * 100) / 100,
             avgMemoryUsage: Math.round(avgMemoryUsage * 100) / 100,
-
             // Time series data
             cpuUsageData,
             memoryUsageData,
             diskUsageData,
             networkData,
-
             // Metadata
-            dataSource: useRealData ? "system_metrics" : "log_based_mock",
+            dataSource: useRealData ? "system_metrics" : "none",
             hasRealData: useRealData,
             totalDataPoints: useRealData ? systemMetrics?.length || 0 : 0,
           },
@@ -2829,6 +2949,87 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         res.status(500).json({
           success: false,
           message: "Failed to fetch resource metrics",
+          error:
+            process.env.NODE_ENV === "development" ? error.message : undefined,
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/alerts",
+    authenticateApiKey,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { timeRange = "24h", project } = req.query;
+
+        // Calculate time range
+        const now = new Date();
+        const timeRangeMs = {
+          "1h": 60 * 60 * 1000,
+          "24h": 24 * 60 * 60 * 1000,
+          "7d": 7 * 24 * 60 * 60 * 1000,
+          "30d": 30 * 24 * 60 * 60 * 1000,
+          "60d": 60 * 24 * 60 * 60 * 1000,
+          "90d": 90 * 24 * 60 * 60 * 1000,
+          "180d": 180 * 24 * 60 * 60 * 1000,
+          "365d": 365 * 24 * 60 * 60 * 1000,
+        };
+
+        const startTime = new Date(
+          now.getTime() -
+            (timeRangeMs[timeRange as keyof typeof timeRangeMs] ||
+              timeRangeMs["24h"]),
+        );
+
+        // Log the time range for debugging
+        console.log("Time range:", {
+          from: startTime.toISOString(),
+          to: now.toISOString(),
+        });
+
+        // Get the alerts index
+        const alertsIndex = client.index(ALERTS_INDEX);
+
+        // Log the index name for debugging
+        console.log("Index:", ALERTS_INDEX);
+
+        // Build the filter
+        let filter = `timestamp >= "${startTime.toISOString()}" AND acknowledged = false`;
+
+        if (project && project !== "all") {
+          filter += ` AND project = "${project}"`;
+        }
+
+        // Log the filter for debugging
+        console.log("Filter:", filter);
+
+        // Search for active alerts
+        const results = await alertsIndex.search("", {
+          filter,
+          limit: 0, // We only need the count
+        });
+
+        // Log the results for debugging
+        console.log("Search results:", results);
+
+        const totalActiveAlerts = results.estimatedTotalHits || 0;
+
+        res.json({
+          success: true,
+          data: {
+            totalActiveAlerts,
+            timeRange: {
+              from: startTime.toISOString(),
+              to: now.toISOString(),
+            },
+          },
+        });
+      } catch (error: any) {
+        console.error("Error fetching active alerts:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch active alerts",
           error:
             process.env.NODE_ENV === "development" ? error.message : undefined,
         });

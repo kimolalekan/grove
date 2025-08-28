@@ -75,6 +75,20 @@ filebeat.inputs:
       log_type: "system"
     fields_under_root: true
 
+  # System Metrics Logs
+  - type: log
+    enabled: true
+    id: system-metrics
+    paths:
+      - /var/log/system-metrics.log
+    fields:
+      source: "system-metrics"
+      log_type: "metrics"
+    fields_under_root: true
+    json:
+      keys_under_root: true
+      overwrite_keys: true
+
 processors:
   - add_host_metadata:
       when.not.contains.tags: forwarded
@@ -82,44 +96,91 @@ processors:
   - add_docker_metadata: ~
   - add_kubernetes_metadata: ~
 
-  # Generate ID
+  # Generate ID for logs
   - fingerprint:
       fields: ["log.file.path", "message"]
       target_field: "id"
       method: "sha256"
       encoding: "hex"
+      when:
+        not:
+          equals:
+            source: "system-metrics"
 
-  # Set log level based on source and content
+  # Generate ID for metrics (different fields to avoid conflicts)
+  - fingerprint:
+      fields: ["timestamp", "host.name"]
+      target_field: "id"
+      method: "sha1"
+      encoding: "hex"
+      when:
+        equals:
+          source: "system-metrics"
+
+  # Set log level based on source and content (for logs)
   - script:
       lang: javascript
       source: >
         function process(event) {
-          var message = event.Get("message");
-          var logType = event.Get("log_type");
-          var level = "info";
+          var source = event.Get("source");
 
-          if (logType === "error") {
-            level = "error";
-          } else if (message && message.toLowerCase().includes("warn")) {
-            level = "warning";
-          } else if (message && (
-            message.toLowerCase().includes("error") ||
-            message.toLowerCase().includes("failed") ||
-            message.toLowerCase().includes("exception")
-          )) {
-            level = "error";
+          // Handle metrics differently
+          if (source === "system-metrics") {
+            var level = "info";
+            var cpuUsage = event.Get("cpu.usage_percent");
+            var memUsage = event.Get("memory.usage_percent");
+            var diskUsage = event.Get("disk.usage_percent");
+
+            if (cpuUsage > 80 || memUsage > 80 || diskUsage > 90) {
+              level = "warning";
+            }
+            if (diskUsage > 95) {
+              level = "error";
+            }
+            event.Put("level", level);
+
+            // Create meaningful message for metrics
+            var message = "System Metrics - ";
+            message += "CPU: " + Math.round(cpuUsage) + "%, ";
+            message += "Memory: " + Math.round(memUsage) + "%, ";
+            message += "Disk: " + Math.round(diskUsage) + "%";
+            event.Put("message", message);
+
+          } else {
+            // Handle regular logs
+            var message = event.Get("message");
+            var logType = event.Get("log_type");
+            var level = "info";
+
+            if (logType === "error") {
+              level = "error";
+            } else if (message && message.toLowerCase().includes("warn")) {
+              level = "warning";
+            } else if (message && (
+              message.toLowerCase().includes("error") ||
+              message.toLowerCase().includes("failed") ||
+              message.toLowerCase().includes("exception")
+            )) {
+              level = "error";
+            }
+            event.Put("level", level);
           }
-          event.Put("level", level);
         }
 
-  # Extract details from HTTP logs
+  # Extract details from HTTP logs (only for web logs)
   - dissect:
       tokenizer: '%{client.ip} - %{?user.id} [%{@timestamp}] "%{http.request.method} %{url.original} HTTP/%{http.version}" %{http.response.status_code} %{http.response.body.bytes} "%{http.request.referrer}" "%{user_agent.original}"'
       field: "message"
       target_prefix: "temp"
       ignore_failure: true
+      when:
+        or:
+          - equals:
+              source: "nginx"
+          - equals:
+              source: "apache"
 
-  # Rename fields to match your LogEntry format
+  # Rename fields to match your LogEntry format (for web logs)
   - rename:
       fields:
         - from: "temp.client.ip"
@@ -138,8 +199,14 @@ processors:
           to: "details.size"
       ignore_missing: true
       fail_on_error: false
+      when:
+        or:
+          - equals:
+              source: "nginx"
+          - equals:
+              source: "apache"
 
-  # Convert to your exact LogEntry format
+  # Convert timestamp for all events
   - convert:
       fields:
         - from: "@timestamp"
@@ -154,32 +221,59 @@ processors:
       ignore_missing: true
 
 output.http:
-  hosts: ["http://your-custom-endpoint.com/api/logs"] # Your endpoint URL
+  hosts: ["https://your-custom-endpoint.com/api/logs"]
   protocol: "https"
   method: "POST"
   headers:
     Content-Type: "application/json"
-    Authorization: "Bearer your-auth-token" # If needed
+    Authorization: "Bearer your-auth-token"
   message_format: "formatted"
   format:
-    string: '{
-      "id": "{{.id}}",
-      "project": "ProjectName",
-      "timestamp": "{{.timestamp}}",
-      "source": "{{.source}}",
-      "message": "{{.message}}",
-      "level": "{{.level}}",
-      "details": {
-      {{if .details.ip}}"ip": "{{.details.ip}}",{{end}}
-      {{if .details.userAgent}}"userAgent": "{{.details.userAgent}}",{{end}}
-      {{if .details.userId}}"userId": "{{.details.userId}}",{{end}}
-      {{if .details.duration}}"duration": {{.details.duration}},{{end}}
-      {{if .details.statusCode}}"statusCode": {{.details.statusCode}},{{end}}
-      {{if .details.method}}"method": "{{.details.method}}",{{end}}
-      {{if .details.path}}"path": "{{.details.path}}",{{end}}
-      {{if .details.size}}"size": "{{.details.size}}"{{end}}
+    string: |
+      {{if eq .source "system-metrics"}}
+      {
+        "id": "{{.id}}",
+        "project": "ProjectName",
+        "timestamp": "{{.timestamp}}",
+        "source": "system-metrics",
+        "message": "{{.message}}",
+        "level": "{{.level}}",
+        "details": {
+          "host": "{{.host.name}}",
+          "cpu_usage": {{.cpu.usage_percent}},
+          "cpu_cores": {{.cpu.cores}},
+          "memory_total": {{.memory.total_bytes}},
+          "memory_used": {{.memory.used_bytes}},
+          "memory_free": {{.memory.free_bytes}},
+          "memory_available": {{.memory.available_bytes}},
+          "memory_usage": {{.memory.usage_percent}},
+          "disk_total": {{.disk.total_bytes}},
+          "disk_used": {{.disk.used_bytes}},
+          "disk_available": {{.disk.available_bytes}},
+          "disk_usage": {{.disk.usage_percent}},
+          "mount_point": "{{.disk.mount_point}}"
+        }
       }
-      }'
+      {{else}}
+      {
+        "id": "{{.id}}",
+        "project": "ProjectName",
+        "timestamp": "{{.timestamp}}",
+        "source": "{{.source}}",
+        "message": "{{.message}}",
+        "level": "{{.level}}",
+        "details": {
+        {{if .details.ip}}"ip": "{{.details.ip}}",{{end}}
+        {{if .details.userAgent}}"userAgent": "{{.details.userAgent}}",{{end}}
+        {{if .details.userId}}"userId": "{{.details.userId}}",{{end}}
+        {{if .details.duration}}"duration": {{.details.duration}},{{end}}
+        {{if .details.statusCode}}"statusCode": {{.details.statusCode}},{{end}}
+        {{if .details.method}}"method": "{{.details.method}}",{{end}}
+        {{if .details.path}}"path": "{{.details.path}}",{{end}}
+        {{if .details.size}}"size": "{{.details.size}}"{{end}}
+        }
+      }
+      {{end}}
 
 # Enable logging for debugging
 logging.level: info

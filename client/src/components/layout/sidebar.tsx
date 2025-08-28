@@ -133,8 +133,8 @@ export default function Sidebar({
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
           <div className="flex items-center">
-            <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-              <TreeDeciduous className="text-white text-sm" />
+            <div className="w-8 h-8  rounded-lg flex items-center justify-center">
+              <img src="/logo.png" alt="Grove Logo" className="w-6 h-6" />
             </div>
             <span className="ml-3 text-xl font-bold text-gray-900">Grove</span>
           </div>
@@ -163,7 +163,7 @@ export default function Sidebar({
                 className={cn(
                   "w-full justify-start px-4 py-3 text-sm font-medium rounded-lg",
                   isActive
-                    ? "text-green-700 bg-green-50"
+                    ? "text-green-700 bg-admin-green-50"
                     : "text-gray-700 hover:bg-gray-100 hover:text-green-700",
                 )}
                 onClick={() => handleNavigation(item.path, item.id)}
