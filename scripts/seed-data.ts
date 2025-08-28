@@ -455,7 +455,8 @@ const generateSystemMetrics = (count: number) => {
       timestamp,
       project,
       source: "system_metrics",
-      server,
+      level: "info",
+      message: "",
       cpu: {
         usage: cpuUsage,
         cores: 4 + Math.floor(Math.random() * 8),
