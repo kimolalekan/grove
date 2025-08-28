@@ -445,21 +445,6 @@ const generateApiKey = (): string => {
   return prefix + randomPart;
 };
 
-function getTimeRangeMs(timeRange: string): number {
-  const timeRangeMap: { [key: string]: number } = {
-    "1h": 60 * 60 * 1000,
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-    "60d": 60 * 24 * 60 * 60 * 1000,
-    "90d": 90 * 24 * 60 * 60 * 1000,
-    "180d": 180 * 24 * 60 * 60 * 1000,
-    "365d": 365 * 24 * 60 * 60 * 1000,
-  };
-
-  return timeRangeMap[timeRange] || timeRangeMap["24h"];
-}
-
 // Helper function to check MeiliSearch connectivity
 const checkMeiliSearchConnection = async (): Promise<void> => {
   try {
@@ -532,7 +517,6 @@ async function initializeDefaults() {
 
       const hashedPassword = await hashPassword("Grove12345");
       const now = new Date().toISOString();
-
       const userData: User = {
         id: generateUserId(),
         name: "Grove Admin",
@@ -555,6 +539,15 @@ async function initializeDefaults() {
       const currentDir = process.cwd();
       const filePath = path.join(currentDir, "grove.json");
       await fs.writeFile(filePath, _data, "utf-8");
+
+      // Update .env file with the new API key
+      const envPath = path.join(currentDir, ".env");
+      let envContent = await fs.readFile(envPath, "utf-8");
+      envContent = envContent.replace(
+        /VITE_PUBLIC_API_KEY=".*"/,
+        `VITE_PUBLIC_API_KEY="${apiKeyData.key}"`,
+      );
+      await fs.writeFile(envPath, envContent, "utf-8");
 
       console.log("Default user and API key created successfully");
     } else {
