@@ -713,7 +713,9 @@ export default function Logs() {
                           {log.level}
                         </Badge>
                       </td>
-                      <td className="p-4 align-middle">{log.message}</td>
+                      <td className="p-4 align-middle truncate max-w-[350px]">
+                        {log.message}
+                      </td>
                       <td className="p-4 align-middle">
                         <Button
                           variant="ghost"

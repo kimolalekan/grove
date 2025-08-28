@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import logoImage from "@assets/logo.png";
 
 interface LoginRequest {
   email: string;
@@ -150,13 +151,13 @@ export default function Login() {
         <CardHeader className="text-center">
           <div className="flex items-center justify-center mb-4">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center">
-              <img src="/logo.png" alt="Grove Logo" className="w-12 h-12" />
+              <img src={logoImage} alt="Grove Logo" className="w-12 h-12" />
             </div>
           </div>
           <CardTitle className="text-2xl font-bold text-gray-900">
             Grove
           </CardTitle>
-          <p className="text-gray-600">Sign in to your admin account</p>
+          <p className="text-gray-600">Sign in to your account</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
