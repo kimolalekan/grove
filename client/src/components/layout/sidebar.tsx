@@ -2,10 +2,10 @@ import {
   X,
   TrendingUp,
   Users,
+  User,
   Bell,
   ScrollText,
   Key,
-  TreeDeciduous,
   LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import logoImage from "@assets/logo.png";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -134,7 +135,7 @@ export default function Sidebar({
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
           <div className="flex items-center">
             <div className="w-8 h-8  rounded-lg flex items-center justify-center">
-              <img src="/logo.png" alt="Grove Logo" className="w-6 h-6" />
+              <img src={logoImage} alt="Grove Logo" className="w-6 h-6" />
             </div>
             <span className="ml-3 text-xl font-bold text-gray-900">Grove</span>
           </div>
@@ -152,7 +153,7 @@ export default function Sidebar({
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-6 space-y-2">
-          {navItems.map((item) => {
+          {navItems.map((item: any) => {
             const Icon = item.icon;
             const isActive = currentActiveSection === item.id;
 
@@ -193,7 +194,7 @@ export default function Sidebar({
         <div className="px-4 py-4 border-t border-gray-200 space-y-4">
           <div className="flex items-center">
             <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
-              <Users className="w-5 h-5 text-gray-600" />
+              <User className="w-5 h-5 text-gray-600" />
             </div>
             <div className="ml-3 flex-1">
               <p className="text-sm font-medium text-gray-900">{admin.name}</p>

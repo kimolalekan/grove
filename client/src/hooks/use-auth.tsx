@@ -41,7 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const userData = JSON.parse(userCookie);
         setUserState(userData);
-        console.log("User data restored:", userData);
       } catch (error) {
         console.error("Failed to parse user cookie:", error);
         Cookies.remove("user");
@@ -56,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserState(newUser);
     if (newUser) {
       Cookies.set("user", JSON.stringify(newUser), {
-        expires: 4 / 24, // 4 hours
+        expires: 4 / 24,
         secure: process.env.NODE_ENV === "production",
         sameSite: "strict",
       });
