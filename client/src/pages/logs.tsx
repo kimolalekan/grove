@@ -95,11 +95,6 @@ export default function Logs() {
     queryKey: ["logs-projects"],
     queryFn: async () => {
       const apiKey = import.meta.env.VITE_PUBLIC_API_KEY;
-      if (!apiKey) {
-        console.error("API key is missing");
-        throw new Error("API key is required");
-      }
-
       const response = await fetch("/api/logs/projects", {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -139,11 +134,6 @@ export default function Logs() {
     queryKey: ["logs-sources"],
     queryFn: async () => {
       const apiKey = import.meta.env.VITE_PUBLIC_API_KEY;
-      if (!apiKey) {
-        console.error("API key is missing");
-        throw new Error("API key is required");
-      }
-
       const response = await fetch("/api/logs/sources", {
         headers: {
           Authorization: `Bearer ${apiKey}`,
