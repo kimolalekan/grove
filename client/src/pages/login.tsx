@@ -154,9 +154,7 @@ export default function Login() {
               <img src={logoImage} alt="Grove Logo" className="w-12 h-12" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold text-gray-900">
-            Grove
-          </CardTitle>
+          <CardTitle className="text-2xl font-bold">Grove</CardTitle>
           <p className="text-gray-600">Sign in to your account</p>
         </CardHeader>
         <CardContent>

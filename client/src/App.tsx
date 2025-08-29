@@ -11,7 +11,7 @@ import Alerts from "@/pages/alerts";
 import Users from "@/pages/users";
 import Apikeys from "@/pages/apikeys";
 import { AuthProvider } from "@/hooks/use-auth";
-
+import { ThemeProvider } from "@/components/layout";
 function Router() {
   return (
     <Switch>
@@ -32,8 +32,12 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <Toaster />
-          <Router />
+          <ThemeProvider>
+            {" "}
+            {/* Wrap your app with ThemeProvider */}
+            <Toaster />
+            <Router />
+          </ThemeProvider>
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>

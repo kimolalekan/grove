@@ -44,7 +44,7 @@ export default function AdminLayout({ children, title }: AdminLayoutProps) {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen w-full flex">
+    <div className="min-h-screen w-full flex">
       <head>
         <title>{title}</title>
       </head>

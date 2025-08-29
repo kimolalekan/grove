@@ -352,29 +352,6 @@ export default function Metrics() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch servers
-  const {
-    data: serversData,
-    isLoading: serversLoading,
-    error: serversError,
-  } = useQuery({
-    queryKey: ["metrics-servers"],
-    queryFn: async () => {
-      const response = await fetch("/api/logs/servers", {
-        headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch servers");
-      }
-      const data = await response.json();
-      return data.data || [];
-    },
-    retry: 2,
-    staleTime: 5 * 60 * 1000,
-  });
-
   // Fetch overview metrics
   const {
     data: overviewData,
@@ -780,7 +757,7 @@ export default function Metrics() {
                       <FileText className="h-4 w-4 text-gray-500" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold text-gray-700">
+                      <div className="text-2xl font-bold">
                         {isLoadingLogCounts ? (
                           <Loader2 className="h-6 w-6 animate-spin" />
                         ) : logCountsError ? (

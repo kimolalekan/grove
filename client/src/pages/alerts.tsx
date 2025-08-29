@@ -457,7 +457,7 @@ export default function Alerts() {
       case "warning":
         return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
       case "info":
-        return <Bell className="h-4 w-4 text-blue-500" />;
+        return <Bell className="h-4 w-4 text-gray" />;
       default:
         return <Bell className="h-4 w-4" />;
     }
@@ -610,12 +610,13 @@ export default function Alerts() {
                             <div className="flex items-center gap-2">
                               {getSeverityIcon(alert.severity)}
                               <Badge
+                                className={`${alert.severity === "info" ? "bg-black" : ""}`}
                                 variant={
                                   alert.severity === "critical"
                                     ? "destructive"
                                     : alert.severity === "warning"
-                                      ? "default"
-                                      : "secondary"
+                                      ? "secondary"
+                                      : "default"
                                 }
                               >
                                 {alert.severity}
@@ -636,7 +637,12 @@ export default function Alerts() {
                                 Acknowledged
                               </Badge>
                             ) : (
-                              <Badge variant="secondary">Active</Badge>
+                              <Badge
+                                className="text-admin-green"
+                                variant="outline"
+                              >
+                                Active
+                              </Badge>
                             )}
                           </TableCell>
                           <TableCell>

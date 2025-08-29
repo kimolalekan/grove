@@ -61,7 +61,7 @@ export default {
           border: "var(--sidebar-border)",
           ring: "var(--sidebar-ring)",
         },
-        "admin-blue": "var(--admin-blue)",
+        "admin-green": "var(--admin-green)",
         "admin-gray": "var(--admin-gray)",
       },
       fontFamily: {
@@ -71,7 +71,7 @@ export default {
         inter: ["Inter", "sans-serif"],
       },
       width: {
-        '280': '280px',
+        "280": "280px",
       },
       keyframes: {
         "accordion-down": {

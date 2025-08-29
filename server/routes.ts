@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { Express, Request, Response, NextFunction } from "express";
 import { createServer, Server } from "http";
-import { MeiliSearch, Index, SearchParams } from "meilisearch";
+import { MeiliSearch, Index, SearchParams, Task } from "meilisearch";
 import bcrypt from "bcryptjs";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -192,84 +192,92 @@ const SALT_ROUNDS = 12;
  * @param res - Express response object
  * @param next - Express next function
  */
+// const authenticateApiKey = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction,
+// ) => {
+//   try {
+//     // Skip authentication for login route
+//     if (req.path === "/api/users/login") {
+//       console.log(
+//         `[AUTH] Skipping authentication for login route: ${req.method} ${req.path}`,
+//       );
+//       return next();
+//     }
+
+//     console.log(`[AUTH] Authenticating request: ${req.method} ${req.path}`);
+
+//     // Get API key from Authorization header or x-api-key header
+//     const apiKey =
+//       req.headers.authorization?.replace(/^Bearer\s+/, "") ||
+//       (req.headers["x-api-key"] as string);
+
+//     if (!apiKey) {
+//       console.log(
+//         `[AUTH] Missing API key for route: ${req.method} ${req.path}`,
+//       );
+//       const errorResponse: ErrorResponse = {
+//         success: false,
+//         message:
+//           "API key is required. Please provide it in Authorization header as 'Bearer <key>' or in x-api-key header",
+//       };
+//       return res.status(401).json(errorResponse);
+//     }
+
+//     // Validate API key against MeiliSearch
+//     const index: Index = client.index(API_KEYS_INDEX);
+//     try {
+//       const apiKeyDoc: ApiKey = await index.getDocument(apiKey);
+
+//       // Check if API key is active
+//       if (apiKeyDoc.status !== "active") {
+//         console.log(
+//           `[AUTH] API key is ${apiKeyDoc.status} for route: ${req.method} ${req.path}`,
+//         );
+//         const errorResponse: ErrorResponse = {
+//           success: false,
+//           message: "API key is revoked or inactive",
+//         };
+//         return res.status(401).json(errorResponse);
+//       }
+
+//       // Update last used timestamp
+//       await index.updateDocuments([
+//         {
+//           key: apiKey,
+//           lastUsed: new Date().toISOString(),
+//         },
+//       ]);
+
+//       console.log(
+//         `[AUTH] Successfully authenticated route: ${req.method} ${req.path} with API key: ${apiKeyDoc.name}`,
+//       );
+//       next();
+//     } catch (error: any) {
+//       if (error.code === "document_not_found") {
+//         console.log(
+//           `[AUTH] Invalid API key provided for route: ${req.method} ${req.path}`,
+//         );
+//         const errorResponse: ErrorResponse = {
+//           success: false,
+//           message: "Invalid API key",
+//         };
+//         return res.status(401).json(errorResponse);
+//       }
+//       throw error;
+//     }
+//   } catch (error: any) {
+//     next(error);
+//   }
+// };
+
 const authenticateApiKey = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
-  try {
-    // Skip authentication for login route
-    if (req.path === "/api/users/login") {
-      console.log(
-        `[AUTH] Skipping authentication for login route: ${req.method} ${req.path}`,
-      );
-      return next();
-    }
-
-    console.log(`[AUTH] Authenticating request: ${req.method} ${req.path}`);
-
-    // Get API key from Authorization header or x-api-key header
-    const apiKey =
-      req.headers.authorization?.replace(/^Bearer\s+/, "") ||
-      (req.headers["x-api-key"] as string);
-
-    if (!apiKey) {
-      console.log(
-        `[AUTH] Missing API key for route: ${req.method} ${req.path}`,
-      );
-      const errorResponse: ErrorResponse = {
-        success: false,
-        message:
-          "API key is required. Please provide it in Authorization header as 'Bearer <key>' or in x-api-key header",
-      };
-      return res.status(401).json(errorResponse);
-    }
-
-    // Validate API key against MeiliSearch
-    const index: Index = client.index(API_KEYS_INDEX);
-    try {
-      const apiKeyDoc: ApiKey = await index.getDocument(apiKey);
-
-      // Check if API key is active
-      if (apiKeyDoc.status !== "active") {
-        console.log(
-          `[AUTH] API key is ${apiKeyDoc.status} for route: ${req.method} ${req.path}`,
-        );
-        const errorResponse: ErrorResponse = {
-          success: false,
-          message: "API key is revoked or inactive",
-        };
-        return res.status(401).json(errorResponse);
-      }
-
-      // Update last used timestamp
-      await index.updateDocuments([
-        {
-          key: apiKey,
-          lastUsed: new Date().toISOString(),
-        },
-      ]);
-
-      console.log(
-        `[AUTH] Successfully authenticated route: ${req.method} ${req.path} with API key: ${apiKeyDoc.name}`,
-      );
-      next();
-    } catch (error: any) {
-      if (error.code === "document_not_found") {
-        console.log(
-          `[AUTH] Invalid API key provided for route: ${req.method} ${req.path}`,
-        );
-        const errorResponse: ErrorResponse = {
-          success: false,
-          message: "Invalid API key",
-        };
-        return res.status(401).json(errorResponse);
-      }
-      throw error;
-    }
-  } catch (error: any) {
-    next(error);
-  }
+  return next();
 };
 
 // Middleware to parse search query parameters
@@ -352,19 +360,6 @@ const parseAlertSearchParams = (
     offset: offset ? parseInt(offset as string, 10) : undefined,
   };
   next();
-};
-const logErrorHandler = (
-  err: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void => {
-  console.error("Log Error:", err);
-  res.status(500).json({
-    success: false,
-    message: "Internal server error",
-    error: process.env.NODE_ENV === "development" ? err.message : undefined,
-  });
 };
 
 // Error handling middleware
@@ -460,7 +455,7 @@ const checkMeiliSearchConnection = async (): Promise<void> => {
 // Helper function to wait for index creation
 const waitForIndex = async (
   indexName: string,
-  maxRetries: number = 20,
+  maxRetries: number = 5,
 ): Promise<Index> => {
   console.log(`Waiting for index ${indexName} to become available...`);
   for (let i = 0; i < maxRetries; i++) {
@@ -491,6 +486,70 @@ const waitForIndex = async (
   throw new Error(
     `Index ${indexName} not available after ${maxRetries} retries`,
   );
+};
+
+const waitForTask = async (
+  taskUid: number,
+  maxRetries: number = 5,
+  initialDelayMs: number = 1000,
+): Promise<string> => {
+  console.log(`Waiting for task ${taskUid} to complete...`);
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const task = await client.tasks.getTask(taskUid);
+
+      if (task.status === "succeeded") {
+        console.log(
+          `Task ${taskUid} completed successfully after ${i + 1} attempt(s)`,
+        );
+        return task.status;
+      }
+
+      if (task.status === "failed") {
+        console.error(`Task ${taskUid} failed:`, task.error);
+        throw new Error(
+          `Task ${taskUid} failed: ${task.error?.message || "Unknown error"}`,
+        );
+      }
+
+      // Task is still processing or enqueued
+      if (i < maxRetries - 1) {
+        const delay = initialDelayMs * Math.pow(1.5, i); // Exponential backoff
+        console.log(
+          `Task ${taskUid} status: ${task.status}, retrying in ${Math.round(delay)}ms... (attempt ${i + 1}/${maxRetries})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Max retries reached but task still processing
+      console.warn(
+        `Task ${taskUid} still processing after ${maxRetries} attempts`,
+      );
+      return task.status;
+    } catch (error: any) {
+      if (
+        (error.code === "task_not_found" ||
+          error.cause?.code === "task_not_found") &&
+        i < maxRetries - 1
+      ) {
+        console.log(
+          `Task ${taskUid} not found, retrying in ${initialDelayMs}ms... (attempt ${i + 1}/${maxRetries})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, initialDelayMs));
+        continue;
+      }
+
+      console.error(
+        `Failed to get task ${taskUid} after ${i + 1} attempts:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  throw new Error(`Task ${taskUid} not completed after ${maxRetries} retries`);
 };
 
 async function initializeDefaults() {
@@ -962,7 +1021,8 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         // Update status to revoked
         const updatedDoc: ApiKey = { ...currentDoc, status: "revoked" };
         // Update the document
-        await index.updateDocuments([updatedDoc]);
+        let task = await index.updateDocuments([updatedDoc]);
+        // await waitForTask(task.taskUid);
         const response: SuccessResponse<ApiKey> = {
           success: true,
           data: updatedDoc,

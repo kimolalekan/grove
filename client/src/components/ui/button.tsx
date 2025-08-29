@@ -10,7 +10,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-admin-blue text-primary-foreground hover:bg-admin-green-700",
+          "bg-admin-green text-primary-foreground hover:bg-admin-green-700",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline: "border border-input bg-background hover:bg-accent",

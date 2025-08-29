@@ -39,14 +39,14 @@
     --font-serif: Georgia, serif;
     --font-mono: Menlo, monospace;
     --radius: 1.3rem;
-    --admin-blue: #20b072; /* Changed from hsl(217.2, 91.2%, 59.8%) to #20B072 */
+    --admin-green: #20b072; /* Changed from hsl(217.2, 91.2%, 59.8%) to #20B072 */
     --admin-gray: hsl(210, 20%, 98%);
 }
 
 .dark {
     --background: hsl(0, 0%, 0%);
     --foreground: hsl(200, 6.6667%, 91.1765%);
-    --card: hsl(228, 9.8039%, 10%);
+    --card: #0f0f0f;
     --card-foreground: hsl(0, 0%, 85.098%);
     --popover: hsl(0, 0%, 0%);
     --popover-foreground: hsl(200, 6.6667%, 91.1765%);
@@ -61,7 +61,7 @@
     --destructive: hsl(356.3033, 90.5579%, 54.3137%);
     --destructive-foreground: hsl(0, 0%, 100%);
     --border: hsl(210, 5.2632%, 14.902%);
-    --input: hsl(207.6923, 27.6596%, 18.4314%);
+    --input: #0f0f0f;
     --ring: hsl(202.8169, 89.1213%, 53.1373%);
     --chart-1: hsl(203.8863, 88.2845%, 53.1373%);
     --chart-2: hsl(159.7826, 100%, 36.0784%);
@@ -76,8 +76,8 @@
     --sidebar-accent-foreground: hsl(203.7736, 87.6033%, 52.549%);
     --sidebar-border: hsl(205.7143, 15.7895%, 26.0784%);
     --sidebar-ring: hsl(202.8169, 89.1213%, 53.1373%);
-    --admin-blue: #20b072; /* Changed from hsl(217.2, 91.2%, 59.8%) to #20B072 */
-    --admin-gray: hsl(222.2, 84%, 4.9%);
+    --admin-green: #20b072;
+    --admin-gray: #131313;
 }
 
 @layer base {
@@ -92,19 +92,19 @@
 }
 
 @layer utilities {
-    .admin-blue {
-        color: var(--admin-blue);
+    .admin-green {
+        color: var(--admin-green);
     }
 
-    .bg-admin-blue {
-        background-color: var(--admin-blue);
+    .bg-admin-green {
+        background-color: var(--admin-green);
     }
 
     .bg-admin-gray {
         background-color: var(--admin-gray);
     }
 
-    .border-admin-blue {
-        border-color: var(--admin-blue);
+    .border-admin-green {
+        border-color: var(--admin-green);
     }
 }

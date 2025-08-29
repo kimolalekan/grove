@@ -7,6 +7,8 @@ import {
   ScrollText,
   Key,
   LogOut,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -15,6 +17,8 @@ import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import logoImage from "@assets/logo.png";
+import { useTheme } from ".";
+import { useEffect } from "react";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -32,7 +36,6 @@ export default function Sidebar({
   isOpen,
   setIsOpen,
   admin,
-  activeSection,
   setActiveSection,
 }: SidebarProps) {
   const isMobile = useIsMobile();
@@ -40,6 +43,26 @@ export default function Sidebar({
   const { id } = useParams();
   const { logout } = useAuth();
   const { toast } = useToast();
+  const { theme, toggleTheme, setTheme } = useTheme();
+
+  // Detect system color scheme
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (e: MediaQueryListEvent) => {
+      setTheme(e.matches ? "dark" : "light");
+    };
+
+    // Set initial theme
+    setTheme(mediaQuery.matches ? "dark" : "light");
+
+    // Listen for changes
+    mediaQuery.addEventListener("change", handleChange);
+
+    // Cleanup
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, [setTheme]);
 
   const user = [
     { id: "metrics", label: "Metrics", icon: TrendingUp, path: "/metrics" },
@@ -63,6 +86,7 @@ export default function Sidebar({
     },
     { id: "users", label: "Users", icon: Users, path: "/users" },
   ];
+
   const admins = [
     { id: "metrics", label: "Metrics", icon: TrendingUp, path: "/metrics" },
     { id: "logs", label: "Logs", icon: ScrollText, path: "/logs" },
@@ -83,25 +107,16 @@ export default function Sidebar({
         ? moderator
         : user;
 
-  // Determine active section based on current route
   const getActiveSection = () => {
     const currentPath = location;
-
-    // Check if we're on a detail page with an ID parameter
     if (id) {
-      // Extract the base path before the ID
       const basePath = currentPath.split("/").slice(0, -1).join("/");
-
-      // Find the matching nav item
       const matchingItem = navItems.find(
         (item) =>
           basePath === item.path || currentPath.startsWith(item.path + "/"),
       );
-
       return matchingItem?.id || "";
     }
-
-    // For regular paths without IDs
     return navItems.find((item) => item.path === currentPath)?.id || "";
   };
 
@@ -125,30 +140,44 @@ export default function Sidebar({
   return (
     <aside
       className={cn(
-        "w-280 bg-white shadow-lg border-r border-gray-200 fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out h-full flex flex-col",
+        "w-280 bg-admin-gray shadow-lg border-r fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out h-full flex flex-col",
         isMobile && !isOpen && "-translate-x-full",
         !isMobile && "translate-x-0",
       )}
     >
       <div className="flex flex-col h-full">
         {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+        <div className="flex items-center justify-between h-16 px-6 border-b">
           <div className="flex items-center">
-            <div className="w-8 h-8  rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center">
               <img src={logoImage} alt="Grove Logo" className="w-6 h-6" />
             </div>
-            <span className="ml-3 text-xl font-bold text-gray-900">Grove</span>
+            <span className="ml-3 text-xl font-bold">Grove</span>
           </div>
-          {isMobile && (
+          <div className="flex items-center space-x-2">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsOpen(false)}
-              className="text-gray-400 hover:text-gray-600"
+              onClick={toggleTheme}
+              className="text-gray-400 hover:text-admin-gray"
             >
-              <X className="h-5 w-5" />
+              {theme === "dark" ? (
+                <Sun className="h-5 w-5" />
+              ) : (
+                <Moon className="h-5 w-5" />
+              )}
             </Button>
-          )}
+            {isMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Navigation */}
@@ -156,7 +185,6 @@ export default function Sidebar({
           {navItems.map((item: any) => {
             const Icon = item.icon;
             const isActive = currentActiveSection === item.id;
-
             return (
               <Button
                 key={item.id}
@@ -164,8 +192,8 @@ export default function Sidebar({
                 className={cn(
                   "w-full justify-start px-4 py-3 text-sm font-medium rounded-lg",
                   isActive
-                    ? "text-green-700 bg-admin-green-50"
-                    : "text-gray-700 hover:bg-gray-100 hover:text-green-700",
+                    ? "text-green-700 bg-muted hover:text-green-700 hover:bg-background"
+                    : "text-muted-foreground hover:text-green-700 hover:bg-muted",
                 )}
                 onClick={() => handleNavigation(item.path, item.id)}
               >
@@ -191,17 +219,16 @@ export default function Sidebar({
         </nav>
 
         {/* Admin Info and Logout */}
-        <div className="px-4 py-4 border-t border-gray-200 space-y-4">
+        <div className="px-4 py-4 border-t space-y-4">
           <div className="flex items-center">
-            <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center">
               <User className="w-5 h-5 text-gray-600" />
             </div>
             <div className="ml-3 flex-1">
-              <p className="text-sm font-medium text-gray-900">{admin.name}</p>
+              <p className="text-sm font-medium">{admin.name}</p>
               <p className="text-xs text-gray-500">{admin.role}</p>
             </div>
           </div>
-
           <Button
             variant="outline"
             className="w-full justify-start text-sm text-gray-600 hover:text-red-600 hover:border-red-200"
