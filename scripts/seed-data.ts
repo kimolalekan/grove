@@ -512,7 +512,7 @@ const seedData = async () => {
 
     // Clear existing data
     console.log("🧹 Clearing existing data...");
-    await logsIndex.deleteAllDocuments();
+    // await logsIndex.deleteAllDocuments();
     await alertsIndex.deleteAllDocuments();
     await alertRulesIndex.deleteAllDocuments();
 

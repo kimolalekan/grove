@@ -5,6 +5,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
+import rateLimit from "express-rate-limit";
 
 const viteLogger = createLogger();
 
@@ -77,6 +78,14 @@ export function serveStatic(app: Express) {
   }
 
   app.use(express.static(distPath));
+
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 1000, // limit each IP to 5 requests per windowMs
+    message: "Too many API requests from this IP, please try again later.",
+  });
+
+  app.use("/api/", apiLimiter);
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {

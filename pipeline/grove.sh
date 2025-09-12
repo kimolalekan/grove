@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Configuration
 API_URL="https://logs.yourdomain.com/api/logs"
-API_TOKEN="sk_ns7vqkn851lrevtytjtyl8"
+API_TOKEN="api_token check your apikey on the dashboard"
 LOG_DIR="/var/log"
 CONFIG_DIR="/etc/grove"
 PID_FILE="/var/run/grove.pid"
@@ -19,6 +19,10 @@ APACHE_LOGS_DIR="/var/log/apache2"
 
 # Uvicorn/FastAPI configuration
 UVICORN_LOG_FILE="/var/www/html/image-scan/uvicorn.log"
+
+# Laravel configuration
+LARAVEL_LOG_DIR="/var/www/arya/storage/logs"
+LARAVEL_LOG_PATTERN="laravel-*.log"
 
 # Ensure directories exist
 mkdir -p "$LOG_DIR" "$CONFIG_DIR"
@@ -391,30 +395,34 @@ sanitize_message() {
     echo "$message" | tr -d '\n\r' | sed 's/"/\\"/g'
 }
 
-# Function to extract Laravel log details
+# Function to extract Laravel log details with multiline support
 parse_laravel_log() {
     local log_entry="$1"
 
-    # Extract timestamp, level, and message from Laravel log format
-    # Format: [YYYY-MM-DD HH:MM:SS] channel.LEVEL: message {exception_data}
-    echo "$log_entry" | awk '{
-        if (match($0, /^\[([^\]]+)\] ([^.]+)\.([^:]+): (.*)$/, matches)) {
-            timestamp = matches[1]
-            channel = matches[2]
-            level = matches[3]
-            message = matches[4]
+    # Replace actual newlines with literal \n for JSON compatibility
+    local sanitized_entry=$(echo "$log_entry" | sed ':a;N;$!ba;s/\n/\\n/g')
 
-            # Check if there is JSON data at the end
-            if (match(message, /(.*) (\{.*\})$/, json_matches)) {
-                message = json_matches[1]
-                json_data = json_matches[2]
-                printf "{\"timestamp\": \"%s\", \"channel\": \"%s\", \"level\": \"%s\", \"message\": \"%s\", \"details\": %s}",
-                       timestamp, channel, level, message, json_data
-            } else {
-                printf "{\"timestamp\": \"" timestamp "\", \"channel\": \"" channel "\", \"level\": \"" level "\", \"message\": \"" message "\"}"
+    # Extract the first line (which should contain the main log entry)
+    local first_line=$(echo "$log_entry" | head -1)
+
+    # Try to parse the first line as a standard Laravel log entry
+    if echo "$first_line" | grep -q "^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\]"; then
+        echo "$first_line" | awk '{
+            if (match($0, /^\[([^\]]+)\] ([^.]+)\.([^:]+): (.*)$/, matches)) {
+                timestamp = matches[1]
+                channel = matches[2]
+                level = matches[3]
+                message = matches[4]
+
+                # Include the full multiline message
+                printf "{\"timestamp\": \"%s\", \"channel\": \"%s\", \"level\": \"%s\", \"message\": \"%s\"}",
+                       timestamp, channel, level, "'"$sanitized_entry"'"
             }
-        }
-    }'
+        }'
+    else
+        # Fallback for non-standard format
+        echo "{\"timestamp\": \"$(date '+%Y-%m-%d %H:%M:%S')\", \"channel\": \"laravel\", \"level\": \"error\", \"message\": \"$sanitized_entry\"}"
+    fi
 }
 
 # Function to process log line
@@ -494,9 +502,8 @@ check_log_source() {
             fi
             ;;
         laravel)
-            local log_dir="/var/www/project_name/storage/logs"
-            if [ ! -d "$log_dir" ]; then
-                echo "$(date '+%Y-%m-%d %H:%M:%S') - Laravel log directory not found: $log_dir" >> "${LOG_DIR}/grove.log"
+            if [ ! -d "$LARAVEL_LOG_DIR" ]; then
+                echo "$(date '+%Y-%m-%d %H:%M:%S') - Laravel log directory not found: $LARAVEL_LOG_DIR" >> "${LOG_DIR}/grove.log"
                 return 1
             fi
             ;;
@@ -550,80 +557,6 @@ test_api_connection() {
 
     echo "$(date '+%Y-%m-%d %H:%M:%S') - API connection test failed after $max_retries attempts" >> "${LOG_DIR}/grove.log"
     return 1
-}
-
-# Function to read multi-line log entries
-read_multiline_log() {
-    local source="$1"
-    local log_type="$2"
-    local first_line="$3"
-
-    local log_entry="$first_line"
-
-    # Read subsequent lines for multi-line entries
-    case "$source" in
-        laravel)
-            # Laravel stack traces
-            if echo "$first_line" | grep -q "local.ERROR"; then
-                while IFS= read -r next_line && [ -n "$next_line" ]; do
-                    # Stop reading if we hit the next log entry
-                    if echo "$next_line" | grep -q "^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\]"; then
-                        echo "$next_line" >&3
-                        break
-                    else
-                        log_entry="$log_entry\\n$next_line"
-                    fi
-                done
-            fi
-            ;;
-        apache)
-            # Apache error stack traces
-            if [ "$log_type" = "error" ] && echo "$first_line" | grep -q "\[error\]"; then
-                while IFS= read -r next_line && [ -n "$next_line" ]; do
-                    # Stop reading if we hit the next log entry
-                    if echo "$next_line" | grep -q "^\[[A-Za-z]"; then
-                        echo "$next_line" >&3
-                        break
-                    else
-                        log_entry="$log_entry\\n$next_line"
-                    fi
-                done
-            fi
-            ;;
-        pm2)
-            # PM2 stack traces and JSON output
-            if echo "$first_line" | grep -q -E "(Error|Exception|at .+\.(js|ts|java|py)|{.*}|\[.*\])"; then
-                while IFS= read -r next_line && [ -n "$next_line" ]; do
-                    # Stop reading if we hit the next log entry
-                    if echo "$next_line" | grep -q "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]"; then
-                        echo "$next_line" >&3
-                        break
-                    else
-                        log_entry="$log_entry\\n$next_line"
-                    fi
-                done
-            fi
-            ;;
-        uvicorn)
-            # Uvicorn stack traces and multi-line errors
-            if echo "$first_line" | grep -q -E "(ERROR:|CRITICAL:|Exception|Traceback|at .+\.(py|js))"; then
-                while IFS= read -r next_line && [ -n "$next_line" ]; do
-                    # Stop reading if we hit the next log entry (starts with log level)
-                    if echo "$next_line" | grep -q "^[A-Z]+:"; then
-                        echo "$next_line" >&3
-                        break
-                    else
-                        log_entry="$log_entry\\n$next_line"
-                    fi
-                done
-            fi
-            ;;
-        nginx|system)
-            # System logs typically don't have multi-line entries
-            ;;
-    esac
-
-    echo "$log_entry"
 }
 
 # Function to monitor Apache logs with graceful error handling
@@ -684,8 +617,7 @@ monitor_pm2_logs() {
         (
             tail -n 0 -F "$log_file" 2>/dev/null | while read -r line; do
                 if [ -n "$line" ]; then
-                    local log_entry=$(read_multiline_log "pm2" "$log_type" "$line")
-                    local processed_entry=$(process_log_line "$log_entry" "pm2" "$log_type" "$log_file")
+                    local processed_entry=$(process_log_line "$line" "pm2" "$log_type" "$log_file")
                     send_to_api "$processed_entry" &
                 fi
             done
@@ -710,11 +642,10 @@ monitor_uvicorn_logs() {
     # Monitor the Uvicorn log file
     tail -n 0 -F "$UVICORN_LOG_FILE" 2>/dev/null | while read -r line; do
         if [ -n "$line" ]; then
-            local log_entry=$(read_multiline_log "uvicorn" "application" "$line")
-            local processed_entry=$(process_log_line "$log_entry" "uvicorn" "application" "$UVICORN_LOG_FILE")
+            local processed_entry=$(process_log_line "$line" "uvicorn" "application" "$UVICORN_LOG_FILE")
             send_to_api "$processed_entry" &
         fi
-    done 3<&0
+    done
 
     return 0
 }
@@ -744,30 +675,26 @@ monitor_log_file() {
     # Use tail -F to follow the file and detect rotation
     tail -n 0 -F "$log_file" 2>/dev/null | while read -r line; do
         if [ -n "$line" ]; then
-            local log_entry=$(read_multiline_log "$source" "$log_type" "$line")
-            local processed_entry=$(process_log_line "$log_entry" "$source" "$log_type" "$log_file")
+            local processed_entry=$(process_log_line "$line" "$source" "$log_type" "$log_file")
             send_to_api "$processed_entry" &
         fi
-    done 3<&0
+    done
 
     return 0
 }
 
-# Function to monitor Laravel logs specifically with graceful error handling
+# Function to monitor Laravel logs specifically with improved multiline handling
 monitor_laravel_logs() {
-    local log_dir="/var/www/project_name/storage/logs"
-    local pattern="laravel-*.log"
-
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Laravel log monitor" >> "${LOG_DIR}/grove.log"
 
     # Check if Laravel log directory exists
-    if [ ! -d "$log_dir" ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - Laravel log directory not found, skipping: $log_dir" >> "${LOG_DIR}/grove.log"
-        return 0  # Skip gracefully
+    if [ ! -d "$LARAVEL_LOG_DIR" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Laravel log directory not found, skipping: $LARAVEL_LOG_DIR" >> "${LOG_DIR}/grove.log"
+        return 0
     fi
 
     while true; do
-        local latest_log=$(find_latest_log_file "$log_dir/$pattern")
+        local latest_log=$(find_latest_log_file "$LARAVEL_LOG_DIR/$LARAVEL_LOG_PATTERN")
 
         if [ -z "$latest_log" ] || [ ! -f "$latest_log" ]; then
             echo "$(date '+%Y-%m-%d %H:%M:%S') - No Laravel log files found, waiting..." >> "${LOG_DIR}/grove.log"
@@ -777,16 +704,33 @@ monitor_laravel_logs() {
 
         echo "$(date '+%Y-%m-%d %H:%M:%S') - Monitoring Laravel log: $latest_log" >> "${LOG_DIR}/grove.log"
 
-        # Use tail to follow the current log file with multi-line support
-        tail -n 0 -F "$latest_log" 2>/dev/null | while read -r line; do
-            if [ -n "$line" ]; then
-                local log_entry=$(read_multiline_log "laravel" "application" "$line")
-                local processed_entry=$(process_log_line "$log_entry" "laravel" "application" "$latest_log")
-                send_to_api "$processed_entry" &
-            fi
-        done 3<&0
+        # Use a more robust approach for multiline logs
+        (
+            # Buffer to accumulate multiline entries
+            local current_entry=""
 
-        # If we get here, tail exited (file was deleted/rotated)
+            # Read from the log file
+            tail -n 0 -F "$latest_log" 2>/dev/null | while IFS= read -r line; do
+                if [ -n "$line" ]; then
+                    # Check if this is the start of a new log entry (timestamp pattern)
+                    if echo "$line" | grep -q "^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\]"; then
+                        # Process the previous entry if it exists
+                        if [ -n "$current_entry" ]; then
+                            local processed_entry=$(process_log_line "$current_entry" "laravel" "application" "$latest_log")
+                            send_to_api "$processed_entry" &
+                        fi
+                        # Start new entry
+                        current_entry="$line"
+                    else
+                        # Continue building current multiline entry
+                        current_entry="$current_entry\n$line"
+                    fi
+                fi
+            done
+        ) &
+
+        # Wait for the tail process to finish (file rotation)
+        wait
         echo "$(date '+%Y-%m-%d %H:%M:%S') - Laravel log file changed, looking for new one..." >> "${LOG_DIR}/grove.log"
         sleep 1
     done
@@ -804,7 +748,7 @@ collect_system_metrics() {
 # Main function with graceful error handling for all log sources
 main() {
     echo "Starting log collector..." >> "${LOG_DIR}/grove.log"
-    echo $ > "$PID_FILE"
+    echo $$ > "$PID_FILE"
 
     # Test API connection first with retries
     if ! test_api_connection; then
@@ -825,7 +769,7 @@ main() {
     # Monitor Apache logs (will skip gracefully if not available)
     monitor_apache_logs &
 
-    # Special handling for Laravel logs with rotation and multi-line support
+    # Special handling for Laravel logs with rotation and multiline support
     monitor_laravel_logs &
 
     # Monitor PM2 logs with graceful error handling
@@ -847,7 +791,8 @@ main() {
 cleanup() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Stopping log collector gracefully" >> "${LOG_DIR}/grove.log"
     rm -f "$PID_FILE"
-    # Don't kill background processes, let them continue
+    # Kill all child processes
+    pkill -P $$ 2>/dev/null || true
     exit 0
 }
 
