@@ -419,14 +419,14 @@ export default function Logs() {
           </Button>
         </div>
 
-        <div className="bg-muted/40 p-4 rounded-lg space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 mb-6 border-b -mx-6 px-6">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <FilterIcon className="h-4 w-4" />
               <h2 className="font-semibold">Filters</h2>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-wrap gap-4">
             <Select
               value={selectedSource}
               onValueChange={(value) => {

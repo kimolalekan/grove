@@ -39,6 +39,10 @@ import {
   Loader2,
   AlertCircle,
   XCircle,
+  Eye,
+  EyeOff,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,6 +158,9 @@ export default function Apikeys() {
   const [newApikey, setNewApikey] = useState({
     name: "",
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [visibleKeyIds, setVisibleKeyIds] = useState<number[]>([]);
 
   const {
     data: responseData = { data: [] },
@@ -165,14 +172,14 @@ export default function Apikeys() {
   } = useQuery({
     queryKey: ["apikeys"],
     queryFn: fetchApikeys,
-    staleTime: 30 * 1000, // Consider data fresh for 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
-    refetchOnReconnect: true, // Refetch when network reconnects
-    retry: 3, // Retry failed requests 3 times
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    refetchInterval: 5 * 60 * 1000, // Auto-refresh every 5 minutes
-    refetchIntervalInBackground: true, // Keep refreshing in background
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 
   const apikeys = Array.isArray(responseData.data) ? responseData.data : [];
@@ -215,7 +222,7 @@ export default function Apikeys() {
       queryClient.prefetchQuery({
         queryKey: ["apikeys"],
         queryFn: fetchApikeys,
-        staleTime: 0, // Force fresh data
+        staleTime: 0,
       });
     },
     onError: (error: Error, newApikey, context) => {
@@ -305,7 +312,6 @@ export default function Apikeys() {
     },
   });
 
-  // Mutation to toggle API key status
   const toggleApikeyStatusMutation = useMutation({
     mutationFn: ({
       key,
@@ -315,13 +321,10 @@ export default function Apikeys() {
       currentStatus: string;
     }) => toggleApikeyStatus(key, currentStatus),
     onMutate: async ({ key, currentStatus }) => {
-      // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: ["apikeys"] });
 
-      // Snapshot the previous value
       const previousData = queryClient.getQueryData(["apikeys"]);
 
-      // Optimistically toggle the status
       const newStatus = currentStatus === "active" ? "revoked" : "active";
       queryClient.setQueryData(["apikeys"], (old: any) => ({
         ...old,
@@ -338,15 +341,13 @@ export default function Apikeys() {
         title: "Success",
         description: "API key status updated successfully",
       });
-      // Prefetch to update cache with latest data
       queryClient.prefetchQuery({
         queryKey: ["apikeys"],
         queryFn: fetchApikeys,
-        staleTime: 0, // Force fresh data
+        staleTime: 0,
       });
     },
     onError: (error: Error, variables, context) => {
-      // If the mutation fails, use the context to roll back
       queryClient.setQueryData(["apikeys"], context?.previousData);
       toast({
         title: "Error",
@@ -356,7 +357,6 @@ export default function Apikeys() {
     },
   });
 
-  // Handler functions for UI interactions
   const handleShowAddModal = () => setShowAddApikeyModal(true);
   const handleCloseAddModal = () => {
     setShowAddApikeyModal(false);
@@ -412,6 +412,12 @@ export default function Apikeys() {
     toggleApikeyStatusMutation.mutate({ key, currentStatus });
   };
 
+  const toggleKeyVisibility = (id: number) => {
+    setVisibleKeyIds((prev) =>
+      prev.includes(id) ? prev.filter((ki) => ki !== id) : [...prev, id],
+    );
+  };
+
   const handleCopyKey = (key: string, id: number) => {
     navigator.clipboard.writeText(key);
     setCopiedKeyId(id);
@@ -425,6 +431,15 @@ export default function Apikeys() {
     const matchesStatus = statusFilter === "all" || api.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const totalPages = Math.ceil(filteredApikeys.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedApikeys = filteredApikeys.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
+  const startItem = filteredApikeys.length > 0 ? startIndex + 1 : 0;
+  const endItem = Math.min(startIndex + itemsPerPage, filteredApikeys.length);
 
   if (isLoading) {
     return (
@@ -470,7 +485,6 @@ export default function Apikeys() {
             </div>
             <p className="text-muted-foreground mt-1">
               Manage your application's API keys and access
-              {isRefetching && " • Syncing..."}
             </p>
           </div>
           <Button onClick={handleShowAddModal} className="gap-2">
@@ -478,45 +492,62 @@ export default function Apikeys() {
             Add API Key
           </Button>
         </div>
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Search keys..."
-                  className="pl-8 w-full sm:w-[300px]"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                      <Filter className="h-4 w-4" />
-                      {statusFilter === "all" ? "All Status" : statusFilter}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setStatusFilter("all")}>
-                      All Status
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setStatusFilter("active")}>
-                      Active
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setStatusFilter("revoked")}
-                    >
-                      Revoked
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+        <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 mb-6 border-b -mx-6 px-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search keys..."
+                className="pl-8 w-full sm:w-[300px]"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+              />
             </div>
-          </CardHeader>
-          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Filter className="h-4 w-4" />
+                    {statusFilter === "all" ? "All Status" : statusFilter}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setStatusFilter("all");
+                      setCurrentPage(1);
+                    }}
+                  >
+                    All Status
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setStatusFilter("active");
+                      setCurrentPage(1);
+                    }}
+                  >
+                    Active
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setStatusFilter("revoked");
+                      setCurrentPage(1);
+                    }}
+                  >
+                    Revoked
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </div>
+
+        <Card>
+          <CardContent className="pt-6">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -529,14 +560,14 @@ export default function Apikeys() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredApikeys.length === 0 ? (
+                {paginatedApikeys.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center h-24">
                       No API keys found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredApikeys.map((apikey: Apikey) => (
+                  paginatedApikeys.map((apikey: Apikey) => (
                     <TableRow key={apikey.id}>
                       <TableCell className="font-medium">
                         {apikey.name}
@@ -544,20 +575,38 @@ export default function Apikeys() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold">
-                            {apikey.key.substring(0, 10)}...
+                            {visibleKeyIds.includes(apikey.id)
+                              ? apikey.key
+                              : "••••••••••••••••"}
                           </code>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleCopyKey(apikey.key, apikey.id)}
-                            className="h-8 w-8"
-                          >
-                            {copiedKeyId === apikey.id ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <Copy className="h-4 w-4" />
-                            )}
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => toggleKeyVisibility(apikey.id)}
+                              className="h-8 w-8"
+                            >
+                              {visibleKeyIds.includes(apikey.id) ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                handleCopyKey(apikey.key, apikey.id)
+                              }
+                              className="h-8 w-8"
+                            >
+                              {copiedKeyId === apikey.id ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -635,6 +684,38 @@ export default function Apikeys() {
                 )}
               </TableBody>
             </Table>
+
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing <span className="font-medium">{startItem}</span> to{" "}
+                <span className="font-medium">{endItem}</span> of{" "}
+                <span className="font-medium">{filteredApikeys.length}</span>{" "}
+                entries
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </Button>
+                <div className="text-sm font-medium">
+                  Page {currentPage} of {totalPages || 1}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                >
+                  <ChevronRightIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

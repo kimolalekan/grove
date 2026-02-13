@@ -5,14 +5,38 @@ import {
   alerts as alertsTable,
   alertRules as alertRulesTable,
   auditLogs as auditLogsTable,
+  apiKeys as apiKeysTable,
 } from "../server/db/schema";
 import dotenv from "dotenv";
-import { sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import fs from "fs";
+import path from "path";
 
 dotenv.config();
 
 const SALT_ROUNDS = 10;
+
+const generateApiKey = (): string => {
+  const prefix = "sk_";
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let randomPart = "";
+  for (let i = 0; i < 24; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return prefix + randomPart;
+};
+
+const updateEnvFile = (envPath: string, key: string, value: string) => {
+  if (!fs.existsSync(envPath)) return;
+  let content = fs.readFileSync(envPath, "utf-8");
+  const regex = new RegExp(`^${key}=.*`, "m");
+  if (regex.test(content)) {
+    content = content.replace(regex, `${key}=${value}`);
+  } else {
+    content += `\n${key}=${value}`;
+  }
+  fs.writeFileSync(envPath, content);
+};
 
 const generateLogEntries = (count: number) => {
   const sources = [
@@ -307,6 +331,7 @@ const generateAuditLogs = (count: number) => {
     "LOAN_UPDATED",
     "CREDIT_SCORE_CREATED",
     "FINANCIAL_STATE_CREATED",
+    "FINANCIAL_STATE_UPDATED",
     "USER_LOGIN",
     "USER_PROFILE_UPDATED",
     "USER_PROFILE_CREATED",
@@ -355,12 +380,25 @@ const seedData = async () => {
 
     console.log("🧹 Clearing existing data...");
     await db.delete(auditLogsTable);
+    await db.delete(apiKeysTable);
     await db.delete(logsTable);
     await db.delete(alertsTable);
     await db.delete(alertRulesTable);
     await db.delete(usersTable);
 
     console.log("📊 Generating entries...");
+    const newApiKey = generateApiKey();
+    console.log(`🔑 Generated API Key: ${newApiKey}`);
+
+    // Update .env files
+    const rootDir = path.resolve(process.cwd());
+    updateEnvFile(path.join(rootDir, ".env"), "VITE_PUBLIC_API_KEY", newApiKey);
+    updateEnvFile(
+      path.join(rootDir, "server", ".env"),
+      "VITE_PUBLIC_API_KEY",
+      newApiKey,
+    );
+
     const sampleUsers = [
       {
         id: "user_1",
@@ -427,6 +465,16 @@ const seedData = async () => {
 
     console.log("🚨 Inserting alerts...");
     await db.insert(alertsTable).values(activeAlerts);
+
+    console.log("🔑 Inserting API keys...");
+    await db.insert(apiKeysTable).values([
+      {
+        key: newApiKey,
+        name: "Default Dev Key",
+        status: "active",
+        created: new Date(),
+      },
+    ]);
 
     console.log("⚙️ Inserting alert rules...");
     await db.insert(alertRulesTable).values(alertRules);

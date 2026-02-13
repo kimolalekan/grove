@@ -326,8 +326,8 @@ export default function Alerts() {
         offset: (currentPage - 1) * itemsPerPage,
       }),
     enabled: true,
-    staleTime: realTimeUpdatesEnabled ? 15 * 1000 : 60 * 1000, // Dynamic staleness based on real-time preference
-    gcTime: 10 * 60 * 1000, // Extended cache time for better performance
+    staleTime: realTimeUpdatesEnabled ? 15 * 1000 : 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: 3,
@@ -336,7 +336,7 @@ export default function Alerts() {
       activeTab === "alerts" && realTimeUpdatesEnabled
         ? Date.now() - lastActivity < 5 * 60 * 1000
           ? 30 * 1000
-          : 2 * 60 * 1000 // More frequent updates when user is active
+          : 2 * 60 * 1000
         : false,
     refetchIntervalInBackground: realTimeUpdatesEnabled,
     notifyOnChangeProps: ["data", "error"],
@@ -654,9 +654,9 @@ export default function Alerts() {
       ]);
 
       const tempRule: AlertRule = {
-        id: Date.now() + Math.random(), // More unique temporary ID
+        id: Date.now() + Math.random(),
         ...newRule,
-        enabled: newRule.enabled ?? true, // Ensure enabled state is set
+        enabled: newRule.enabled ?? true,
       };
 
       queryClient.setQueryData<AlertRule[]>(["alert-rules"], (old) =>
@@ -787,7 +787,6 @@ export default function Alerts() {
       // Find the rule being deleted for better messaging
       const ruleToDelete = previousData?.find((rule) => rule.id === id);
 
-      // Optimistically remove the rule immediately
       queryClient.setQueryData<AlertRule[]>(["alert-rules"], (old) =>
         old ? old.filter((rule) => rule.id !== id) : [],
       );
@@ -1209,49 +1208,53 @@ export default function Alerts() {
           </TabsList>
 
           <TabsContent value="alerts" className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                  <Input
-                    placeholder="Search alerts..."
-                    value={searchQuery}
-                    onChange={(e) =>
-                      handleFilterChange("search", e.target.value)
-                    }
-                    className="pl-10"
-                  />
+            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 mb-4 border-b -mx-6 px-6">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search alerts..."
+                      value={searchQuery}
+                      onChange={(e) =>
+                        handleFilterChange("search", e.target.value)
+                      }
+                      className="pl-10"
+                    />
+                  </div>
                 </div>
+                <Select
+                  value={severityFilter}
+                  onValueChange={(value) =>
+                    handleFilterChange("severity", value)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Filter by severity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Severities</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="warning">Warning</SelectItem>
+                    <SelectItem value="info">Info</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => handleFilterChange("status", value)}
+                >
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="acknowledged">Acknowledged</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Select
-                value={severityFilter}
-                onValueChange={(value) => handleFilterChange("severity", value)}
-              >
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Filter by severity" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Severities</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
-                  <SelectItem value="warning">Warning</SelectItem>
-                  <SelectItem value="info">Info</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={statusFilter}
-                onValueChange={(value) => handleFilterChange("status", value)}
-              >
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="acknowledged">Acknowledged</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             <div className="rounded-md border">

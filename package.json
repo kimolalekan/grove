@@ -1,6 +1,6 @@
 {
   "name": "grove",
-  "version": "1.0.0",
+  "version": "0.0.3",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -10,7 +10,9 @@
     "start": "NODE_ENV=production node dist/index.js",
     "production": "NODE_ENV=production yarn build && NODE_ENV=production pm2 start dist/index.js -n 'grove observer'",
     "production:restart": "NODE_ENV=production yarn build && NODE_ENV=production pm2 reload dist/index.js -n 'grove observer' --update-env",
-    "seed": "NODE_ENV=development tsx scripts/seed-data.ts"
+    "seed": "NODE_ENV=development tsx scripts/seed-data.ts",
+    "seed:init": "NODE_ENV=development tsx scripts/initial-setup.ts",
+    "postinstall": "yarn seed:init"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

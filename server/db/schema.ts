@@ -15,8 +15,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
-  role: text("role").notNull().default("user"), // enum ["admin", "customer", "provider", "moderator"]
-  status: text("status").notNull().default("active"), // enum ["active", "inactive", "suspended"]
+  role: text("role").notNull().default("user"),
+  status: text("status").notNull().default("active"),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -25,7 +25,7 @@ export const users = pgTable("users", {
 export const apiKeys = pgTable("api_keys", {
   key: text("key").primaryKey(),
   name: text("name").notNull(),
-  status: text("status").notNull().default("active"), // enum ["active", "revoked"]
+  status: text("status").notNull().default("active"),
   created: timestamp("created").defaultNow().notNull(),
   lastUsed: timestamp("last_used"),
 });
@@ -34,8 +34,8 @@ export const alerts = pgTable("alerts", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   message: text("message").notNull(),
-  severity: text("severity").notNull(), // enum ["critical", "warning", "info"]
-  status: text("status").notNull().default("active"), // enum ["active", "acknowledged", "resolved"]
+  severity: text("severity").notNull(),
+  status: text("status").notNull().default("active"),
   source: text("source").notNull(),
   metadata: jsonb("metadata").default({}),
   acknowledgedBy: text("acknowledged_by"),
@@ -43,7 +43,7 @@ export const alerts = pgTable("alerts", {
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  timestamp: doublePrecision("timestamp_val").notNull(), // using double for epoch ms if we want to query ranges easily numerically
+  timestamp: doublePrecision("timestamp_val").notNull(),
   acknowledged: boolean("acknowledged").default(false),
 });
 
@@ -54,7 +54,7 @@ export const emailLogs = pgTable("email_logs", {
   }),
   recipient: text("recipient").notNull(),
   subject: text("subject").notNull(),
-  status: text("status").notNull(), // enum ["sent", "failed", "pending"]
+  status: text("status").notNull(),
   errorMessage: text("error_message"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -63,10 +63,10 @@ export const emailLogs = pgTable("email_logs", {
 export const logs = pgTable("logs", {
   id: serial("id").primaryKey(),
   project: text("project").notNull(),
-  timestamp: timestamp("timestamp").notNull(), // ISO Date object
+  timestamp: timestamp("timestamp").notNull(),
   source: text("source").notNull(),
   message: text("message").notNull(),
-  level: text("level").notNull(), // enum ["info", "warning", "error"]
+  level: text("level").notNull(),
   details: jsonb("details").default({}),
 });
 
@@ -77,7 +77,7 @@ export const alertRules = pgTable("alert_rules", {
   threshold: text("threshold").notNull(),
   metric: text("metric").notNull(),
   notify: text("notify").notNull(),
-  channel: text("channel").notNull(), // enum ["email", "sms"]
+  channel: text("channel").notNull(),
   enabled: boolean("enabled").notNull().default(true),
 });
 

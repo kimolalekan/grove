@@ -49,6 +49,8 @@ import {
   Key,
   Loader2,
   AlertCircle,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -278,6 +280,8 @@ export default function Users() {
     newPassword: "",
     confirmPassword: "",
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
 
   const isAdmin = currentAuthUser?.role === "admin";
   const isModerator = currentAuthUser?.role === "moderator";
@@ -442,7 +446,6 @@ export default function Users() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (error: Error, userId, context) => {
-      // If the mutation fails, use the context to roll back
       queryClient.setQueryData(["users"], context?.previousUsers);
       toast({
         title: "Error",
@@ -452,7 +455,6 @@ export default function Users() {
     },
   });
 
-  // Update status mutation
   const updateStatusMutation = useMutation({
     mutationFn: ({
       id,
@@ -462,10 +464,8 @@ export default function Users() {
       status: "active" | "inactive" | "suspended";
     }) => updateUserStatus(id, status),
     onMutate: async ({ id, status }) => {
-      // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: ["users"] });
 
-      // Snapshot the previous value
       const previousUsers = queryClient.getQueryData<User[]>(["users"]);
 
       // Optimistically update the user status
@@ -499,15 +499,12 @@ export default function Users() {
     },
   });
 
-  // Update password mutation
   const updatePasswordMutation = useMutation({
     mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
       updateUserPassword(id, newPassword),
     onMutate: async ({ id }) => {
-      // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: ["users"] });
 
-      // Snapshot the previous value
       const previousUsers = queryClient.getQueryData<User[]>(["users"]);
 
       // Optimistically update the user's updatedAt timestamp
@@ -659,7 +656,6 @@ export default function Users() {
   };
 
   const filteredUsers = users.filter((user) => {
-    // Moderators can only see users, not admins or other moderators
     if (isModerator && user.role !== "user") {
       return false;
     }
@@ -673,6 +669,15 @@ export default function Users() {
 
     return matchesSearch && matchesStatus && matchesRole;
   });
+
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedUsers = filteredUsers.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
+  const startItem = filteredUsers.length > 0 ? startIndex + 1 : 0;
+  const endItem = Math.min(startIndex + itemsPerPage, filteredUsers.length);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -747,7 +752,6 @@ export default function Users() {
               Manage your application's users and their permissions
             </p>
           </div>
-          {/* Only show Add User button for admins */}
           {isAdmin && (
             <Button onClick={handleShowAddModal} className="gap-2">
               <UserPlus className="h-4 w-4" />
@@ -756,56 +760,66 @@ export default function Users() {
           )}
         </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="flex-1">
-                <div className="relative max-w-sm">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Search users..."
-                    className="pl-8 w-full"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value: any) => setStatusFilter(value)}
-                >
-                  <SelectTrigger className="w-full sm:w-[150px]">
-                    <Filter className="h-4 w-4 mr-2" />
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={roleFilter}
-                  onValueChange={(value: any) => setRoleFilter(value)}
-                >
-                  <SelectTrigger className="w-full sm:w-[130px]">
-                    <Shield className="h-4 w-4 mr-2" />
-                    <SelectValue placeholder="Role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Roles</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="user">User</SelectItem>
-                    <SelectItem value="moderator">Moderator</SelectItem>
-                  </SelectContent>
-                </Select>
+        <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 mb-6 border-b -mx-6 px-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <div className="relative max-w-sm">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search users..."
+                  className="pl-8 w-full"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Select
+                value={statusFilter}
+                onValueChange={(value: any) => {
+                  setStatusFilter(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[150px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={roleFilter}
+                onValueChange={(value: any) => {
+                  setRoleFilter(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[130px]">
+                  <Shield className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="moderator">Moderator</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        <Card>
+          <CardContent className="pt-6">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -818,14 +832,14 @@ export default function Users() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.length === 0 ? (
+                {paginatedUsers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center h-24">
                       No users found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredUsers.map((user) => (
+                  paginatedUsers.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -943,6 +957,38 @@ export default function Users() {
                 )}
               </TableBody>
             </Table>
+
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing <span className="font-medium">{startItem}</span> to{" "}
+                <span className="font-medium">{endItem}</span> of{" "}
+                <span className="font-medium">{filteredUsers.length}</span>{" "}
+                entries
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </Button>
+                <div className="text-sm font-medium">
+                  Page {currentPage} of {totalPages || 1}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                >
+                  <ChevronRightIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

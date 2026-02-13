@@ -9,6 +9,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  Monitor,
   History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,22 +45,7 @@ export default function Sidebar({
   const { id } = useParams();
   const { logout } = useAuth();
   const { toast } = useToast();
-  const { theme, toggleTheme, setTheme } = useTheme();
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = (e: MediaQueryListEvent) => {
-      setTheme(e.matches ? "dark" : "light");
-    };
-
-    setTheme(mediaQuery.matches ? "dark" : "light");
-
-    mediaQuery.addEventListener("change", handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, [setTheme]);
+  const { theme, toggleTheme } = useTheme();
 
   const user = [
     { id: "metrics", label: "Metrics", icon: TrendingUp, path: "/metrics" },
@@ -156,9 +142,11 @@ export default function Sidebar({
               className="text-gray-400 hover:text-admin-gray"
             >
               {theme === "dark" ? (
-                <Sun className="h-5 w-5" />
-              ) : (
                 <Moon className="h-5 w-5" />
+              ) : theme === "system" ? (
+                <Monitor className="h-5 w-5" />
+              ) : (
+                <Sun className="h-5 w-5" />
               )}
             </Button>
             {isMobile && (

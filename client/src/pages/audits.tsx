@@ -138,8 +138,8 @@ export default function Audits() {
           </Button>
         </div>
 
-        <div className="bg-card border rounded-lg p-4 space-y-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 mb-6 border-b -mx-6 px-6 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-medium mb-4">
             <FilterIcon className="h-4 w-4 text-primary" />
             Filters
           </div>
@@ -153,10 +153,24 @@ export default function Audits() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Actions</SelectItem>
-                <SelectItem value="API_KEY_CREATED">API Key Created</SelectItem>
-                <SelectItem value="API_KEY_REVOKED">API Key Revoked</SelectItem>
+                <SelectItem value="LOAN_CREATED">Loan Created</SelectItem>
+                <SelectItem value="LOAN_UPDATED">Loan Updated</SelectItem>
+                <SelectItem value="CREDIT_SCORE_CREATED">
+                  Credit Score Created
+                </SelectItem>
+                <SelectItem value="FINANCIAL_STATE_CREATED">
+                  Financial State Created
+                </SelectItem>
+                <SelectItem value="FINANCIAL_STATE_UPDATED">
+                  Financial State Updated
+                </SelectItem>
                 <SelectItem value="USER_LOGIN">User Login</SelectItem>
-                <SelectItem value="ALERT_RESOLVED">Alert Resolved</SelectItem>
+                <SelectItem value="USER_PROFILE_UPDATED">
+                  User Profile Updated
+                </SelectItem>
+                <SelectItem value="USER_PROFILE_CREATED">
+                  User Profile Created
+                </SelectItem>
               </SelectContent>
             </Select>
 
@@ -203,9 +217,6 @@ export default function Audits() {
                     Action
                   </th>
                   <th className="h-12 px-4 text-left font-medium text-muted-foreground">
-                    Entity
-                  </th>
-                  <th className="h-12 px-4 text-left font-medium text-muted-foreground">
                     User
                   </th>
                   <th className="h-12 px-4 text-left font-medium text-muted-foreground">
@@ -239,16 +250,6 @@ export default function Audits() {
                         <Badge variant={getActionBadgeVariant(audit.action)}>
                           {audit.action.replace(/_/g, " ")}
                         </Badge>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex flex-col">
-                          <span className="font-medium capitalize">
-                            {audit.entityType}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {audit.entityId}
-                          </span>
-                        </div>
                       </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
