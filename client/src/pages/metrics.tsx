@@ -893,9 +893,13 @@ export default function Metrics() {
                           Peak
                         </div>
                         <div className="font-medium">
-                          {Math.max(
-                            ...(performanceData?.throughputData || [0]),
-                          )}
+                          {performanceData?.throughputData
+                            ? Math.round(
+                                Math.max(
+                                  ...(performanceData?.throughputData || [0]),
+                                ),
+                              )
+                            : 0}
                         </div>
                       </div>
                       <div>
@@ -950,7 +954,7 @@ export default function Metrics() {
                         <div className="flex justify-between items-center mt-4">
                           <div>
                             <div className="text-2xl font-bold">
-                              {resourceData?.currentCpuUsage || 0}%
+                              {resourceData?.currentCpuUsage?.toFixed(2) || 0}%
                             </div>
                             <div className="text-sm text-muted-foreground">
                               Current usage
@@ -961,7 +965,7 @@ export default function Metrics() {
                               Peak
                             </div>
                             <div className="font-medium">
-                              {resourceData?.maxCpuUsage || 0}%
+                              {resourceData?.maxCpuUsage?.toFixed(2) || 0}%
                             </div>
                           </div>
                           <div>
@@ -969,7 +973,7 @@ export default function Metrics() {
                               Avg.
                             </div>
                             <div className="font-medium">
-                              {resourceData?.avgCpuUsage || 0}%
+                              {resourceData?.avgCpuUsage?.toFixed(2) || 0}%
                             </div>
                           </div>
                         </div>
@@ -1004,7 +1008,9 @@ export default function Metrics() {
                         <div className="flex justify-between items-center mt-4">
                           <div>
                             <div className="text-2xl font-bold">
-                              {resourceData?.currentMemoryUsage || 0}%
+                              {resourceData?.currentMemoryUsage?.toFixed(2) ||
+                                0}
+                              %
                             </div>
                             <div className="text-sm text-muted-foreground">
                               Current usage
@@ -1015,7 +1021,7 @@ export default function Metrics() {
                               Peak
                             </div>
                             <div className="font-medium">
-                              {resourceData?.maxMemoryUsage || 0}%
+                              {resourceData?.maxMemoryUsage?.toFixed(2) || 0}%
                             </div>
                           </div>
                           <div>
@@ -1023,7 +1029,7 @@ export default function Metrics() {
                               Avg.
                             </div>
                             <div className="font-medium">
-                              {resourceData?.avgMemoryUsage || 0}%
+                              {resourceData?.avgMemoryUsage?.toFixed(2) || 0}%
                             </div>
                           </div>
                         </div>

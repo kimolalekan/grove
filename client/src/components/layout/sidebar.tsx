@@ -9,6 +9,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -74,18 +75,15 @@ export default function Sidebar({
   const moderator = [
     { id: "metrics", label: "Metrics", icon: TrendingUp, path: "/metrics" },
     { id: "logs", label: "Logs", icon: ScrollText, path: "/logs" },
-    {
-      id: "alerts",
-      label: "Alerts",
-      icon: Bell,
-      path: "/alerts",
-    },
+    { id: "alerts", label: "Alerts", icon: Bell, path: "/alerts" },
     { id: "users", label: "Users", icon: Users, path: "/users" },
+    { id: "audits", label: "Audits", icon: History, path: "/audits" },
   ];
 
   const admins = [
     { id: "metrics", label: "Metrics", icon: TrendingUp, path: "/metrics" },
     { id: "logs", label: "Logs", icon: ScrollText, path: "/logs" },
+    { id: "audits", label: "Audits", icon: History, path: "/audits" },
     {
       id: "alerts",
       label: "Alerts",

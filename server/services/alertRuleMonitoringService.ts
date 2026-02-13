@@ -1,23 +1,16 @@
-import { MeiliSearch, Index } from "meilisearch";
 import { createAlertService } from "./alertService";
+import { db } from "../db";
+import { logs, alertRules, alertRuleStates } from "../db/schema";
+import { eq, and, gt, gte, desc, sql } from "drizzle-orm";
 
 interface LogEntry {
   id: number;
   project: string;
-  timestamp: string;
+  timestamp: Date;
   source: string;
   message: string;
   level: "info" | "warning" | "error";
-  details?: {
-    ip?: string;
-    userAgent?: string;
-    userId?: string;
-    duration?: number;
-    statusCode?: number;
-    method?: string;
-    path?: string;
-    size?: string;
-  };
+  details?: Record<string, any>;
 }
 
 interface AlertRule {
@@ -33,31 +26,19 @@ interface AlertRule {
 
 interface AlertRuleState {
   ruleId: string;
-  lastTriggered: string;
+  lastTriggered: Date | null;
   currentValue: number;
   triggerCount: number;
-  windowStart: string;
+  windowStart: Date;
   isActive: boolean;
 }
 
 interface MonitoringConfig {
-  meiliSearchHost?: string;
-  meiliSearchKey?: string;
   checkIntervalMs?: number;
   windowSizeMs?: number;
 }
 
-/**
- * Alert Rule Monitoring Service
- *
- * This service monitors log entries and triggers alerts based on configured rules.
- * It supports various metrics and conditions like error rates, response times, etc.
- */
 export class AlertRuleMonitoringService {
-  private client: MeiliSearch;
-  private logsIndex: Index;
-  private alertRulesIndex: Index;
-  private alertRuleStatesIndex: Index;
   private alertService: ReturnType<typeof createAlertService>;
   private checkInterval: NodeJS.Timeout | null = null;
   private windowSizeMs: number;
@@ -65,37 +46,11 @@ export class AlertRuleMonitoringService {
 
   // In-memory state cache for performance
   private ruleStatesCache = new Map<string, AlertRuleState>();
-  private lastProcessedLogId = 0;
+  private lastProcessedLogTimestamp: Date | null = null;
 
   constructor(config: MonitoringConfig = {}) {
-    this.client = new MeiliSearch({
-      host: config.meiliSearchHost || process.env.MEILISEARCH_HOST || "http://localhost:7700",
-      apiKey: config.meiliSearchKey || process.env.MEILISEARCH_KEY || "",
-    });
-
-    this.logsIndex = this.client.index("logs");
-    this.alertRulesIndex = this.client.index("alert_rules");
-    this.alertRuleStatesIndex = this.client.index("alert_rule_states");
     this.alertService = createAlertService();
     this.windowSizeMs = config.windowSizeMs || 5 * 60 * 1000; // 5 minutes default
-
-    this.initializeStateIndex();
-  }
-
-  /**
-   * Initialize the alert rule states index
-   */
-  private async initializeStateIndex(): Promise<void> {
-    try {
-      await this.alertRuleStatesIndex.updateSettings({
-        searchableAttributes: ["ruleId"],
-        filterableAttributes: ["ruleId", "isActive", "lastTriggered"],
-        sortableAttributes: ["lastTriggered", "currentValue", "triggerCount"],
-      });
-      console.log("Alert rule states index initialized");
-    } catch (error) {
-      console.error("Failed to initialize alert rule states index:", error);
-    }
   }
 
   /**
@@ -107,11 +62,13 @@ export class AlertRuleMonitoringService {
       return;
     }
 
-    console.log(`🚨 Starting alert rule monitoring (interval: ${intervalMs}ms)`);
+    console.log(
+      `🚨 Starting alert rule monitoring (interval: ${intervalMs}ms)`,
+    );
     this.isMonitoring = true;
 
     // Load existing rule states
-    await this.loadRuleStatesFromIndex();
+    await this.loadRuleStatesFromDatabase();
 
     // Start monitoring loop
     this.checkInterval = setInterval(async () => {
@@ -139,21 +96,28 @@ export class AlertRuleMonitoringService {
   }
 
   /**
-   * Load existing rule states from index
+   * Load existing rule states from database
    */
-  private async loadRuleStatesFromIndex(): Promise<void> {
+  private async loadRuleStatesFromDatabase(): Promise<void> {
     try {
-      const results = await this.alertRuleStatesIndex.search("", {
-        limit: 1000,
-      });
+      const results = await db.select().from(alertRuleStates);
 
-      for (const state of results.hits as AlertRuleState[]) {
-        this.ruleStatesCache.set(state.ruleId, state);
+      for (const row of results) {
+        this.ruleStatesCache.set(row.ruleId, {
+          ruleId: row.ruleId,
+          lastTriggered: row.lastTriggered,
+          currentValue: Number(row.currentValue),
+          triggerCount: row.triggerCount,
+          windowStart: row.windowStart,
+          isActive: row.isActive,
+        });
       }
 
-      console.log(`Loaded ${this.ruleStatesCache.size} rule states from index`);
+      console.log(
+        `Loaded ${this.ruleStatesCache.size} rule states from database`,
+      );
     } catch (error) {
-      console.error("Failed to load rule states from index:", error);
+      console.error("Failed to load rule states from database:", error);
     }
   }
 
@@ -163,66 +127,61 @@ export class AlertRuleMonitoringService {
   private async processAlertRules(): Promise<void> {
     try {
       // Get all enabled alert rules
-      const alertRules = await this.getEnabledAlertRules();
-      if (alertRules.length === 0) {
+      const enabledRules = await db
+        .select()
+        .from(alertRules)
+        .where(eq(alertRules.enabled, true));
+
+      if (enabledRules.length === 0) {
         return;
       }
 
-      console.log(`Processing ${alertRules.length} alert rules...`);
+      console.log(`Processing ${enabledRules.length} alert rules...`);
 
       // Get new log entries since last check
       const newLogs = await this.getNewLogEntries();
-      if (newLogs.length === 0) {
-        return;
-      }
-
-      console.log(`Found ${newLogs.length} new log entries to process`);
 
       // Process each rule
-      for (const rule of alertRules) {
-        await this.evaluateRule(rule, newLogs);
+      for (const rule of enabledRules) {
+        await this.evaluateRule(rule as AlertRule, newLogs);
       }
 
-      // Update last processed log ID
+      // Update last processed log timestamp if needed
+      // Actually calculated inside evaluateRule or handled by getting logs in window
       if (newLogs.length > 0) {
-        const maxLogId = Math.max(...newLogs.map(log => log.id));
-        this.lastProcessedLogId = maxLogId;
+        const latest = newLogs.reduce(
+          (prev, curr) =>
+            prev.getTime() > curr.timestamp.getTime() ? prev : curr.timestamp,
+          new Date(0),
+        );
+        this.lastProcessedLogTimestamp = latest;
       }
-
     } catch (error) {
       console.error("Failed to process alert rules:", error);
     }
   }
 
   /**
-   * Get all enabled alert rules
-   */
-  private async getEnabledAlertRules(): Promise<AlertRule[]> {
-    try {
-      const results = await this.alertRulesIndex.search("", {
-        filter: "enabled = true",
-        limit: 1000,
-      });
-
-      return results.hits as AlertRule[];
-    } catch (error) {
-      console.error("Failed to fetch alert rules:", error);
-      return [];
-    }
-  }
-
-  /**
-   * Get new log entries since last processed ID
+   * Get new log entries since last processed timestamp
    */
   private async getNewLogEntries(): Promise<LogEntry[]> {
     try {
-      const results = await this.logsIndex.search("", {
-        filter: `id > ${this.lastProcessedLogId}`,
-        sort: ["id:asc"],
-        limit: 1000,
-      });
+      const condition = this.lastProcessedLogTimestamp
+        ? gt(logs.timestamp, this.lastProcessedLogTimestamp)
+        : undefined;
 
-      return results.hits as LogEntry[];
+      const results = await db
+        .select()
+        .from(logs)
+        .where(condition)
+        .orderBy(desc(logs.timestamp))
+        .limit(1000);
+
+      return results.map((r) => ({
+        ...r,
+        level: r.level as "info" | "warning" | "error",
+        details: r.details as Record<string, any>,
+      }));
     } catch (error) {
       console.error("Failed to fetch new log entries:", error);
       return [];
@@ -232,24 +191,31 @@ export class AlertRuleMonitoringService {
   /**
    * Evaluate a single alert rule against log entries
    */
-  private async evaluateRule(rule: AlertRule, logs: LogEntry[]): Promise<void> {
+  private async evaluateRule(
+    rule: AlertRule,
+    newLogs: LogEntry[],
+  ): Promise<void> {
     try {
-      const currentValue = await this.calculateMetricValue(rule, logs);
-      const threshold = this.parseThreshold(rule.threshold);
+      const currentValue = await this.calculateMetricValue(rule, newLogs);
+      const thresholdValue = this.parseThreshold(rule.threshold);
 
       // Get or create rule state
       let ruleState = this.getRuleState(rule.id);
-      const now = new Date().toISOString();
+      const now = new Date();
 
       // Update current value
       ruleState.currentValue = currentValue;
 
       // Check if threshold is exceeded
-      const thresholdExceeded = this.evaluateCondition(rule.condition, currentValue, threshold);
+      const thresholdExceeded = this.evaluateCondition(
+        rule.condition,
+        currentValue,
+        thresholdValue,
+      );
 
       if (thresholdExceeded && !ruleState.isActive) {
         // Trigger alert
-        await this.triggerAlert(rule, ruleState, currentValue, threshold);
+        await this.triggerAlert(rule, ruleState, currentValue, thresholdValue);
         ruleState.isActive = true;
         ruleState.lastTriggered = now;
         ruleState.triggerCount++;
@@ -261,7 +227,6 @@ export class AlertRuleMonitoringService {
       // Update rule state
       this.ruleStatesCache.set(rule.id, ruleState);
       await this.saveRuleState(ruleState);
-
     } catch (error) {
       console.error(`Failed to evaluate rule ${rule.name}:`, error);
     }
@@ -270,42 +235,42 @@ export class AlertRuleMonitoringService {
   /**
    * Calculate metric value based on rule configuration
    */
-  private async calculateMetricValue(rule: AlertRule, logs: LogEntry[]): Promise<number> {
+  private async calculateMetricValue(
+    rule: AlertRule,
+    newLogs: LogEntry[],
+  ): Promise<number> {
     const now = Date.now();
-    const windowStart = now - this.windowSizeMs;
+    const windowStart = new Date(now - this.windowSizeMs);
 
-    // Filter logs within the time window
-    const windowLogs = logs.filter(log =>
-      new Date(log.timestamp).getTime() >= windowStart
-    );
-
-    // Add recent logs from index for more comprehensive analysis
+    // Combine new logs with recent logs from database to cover the full window
     const recentLogs = await this.getLogsInWindow(windowStart);
-    const allLogs = [...windowLogs, ...recentLogs];
+
+    // De-duplicate if needed, though they shouldn't overlap much if lastProcessedLogTimestamp is used
+    const allLogs = [...newLogs, ...recentLogs];
 
     switch (rule.metric.toLowerCase()) {
-      case 'error_rate':
+      case "error_rate":
         return this.calculateErrorRate(allLogs);
 
-      case 'error_count':
+      case "error_count":
         return this.calculateErrorCount(allLogs);
 
-      case 'log_count':
+      case "log_count":
         return this.calculateLogCount(allLogs);
 
-      case 'avg_response_time':
+      case "avg_response_time":
         return this.calculateAverageResponseTime(allLogs);
 
-      case 'max_response_time':
+      case "max_response_time":
         return this.calculateMaxResponseTime(allLogs);
 
-      case '4xx_rate':
+      case "4xx_rate":
         return this.calculate4xxRate(allLogs);
 
-      case '5xx_rate':
+      case "5xx_rate":
         return this.calculate5xxRate(allLogs);
 
-      case 'unique_errors':
+      case "unique_errors":
         return this.calculateUniqueErrors(allLogs);
 
       default:
@@ -317,14 +282,19 @@ export class AlertRuleMonitoringService {
   /**
    * Get logs within a specific time window
    */
-  private async getLogsInWindow(windowStart: number): Promise<LogEntry[]> {
+  private async getLogsInWindow(windowStart: Date): Promise<LogEntry[]> {
     try {
-      const startTime = new Date(windowStart).toISOString();
-      const results = await this.logsIndex.search("", {
-        filter: `timestamp >= "${startTime}"`,
-        limit: 5000,
-      });
-      return results.hits as LogEntry[];
+      const results = await db
+        .select()
+        .from(logs)
+        .where(gte(logs.timestamp, windowStart))
+        .limit(5000);
+
+      return results.map((r) => ({
+        ...r,
+        level: r.level as "info" | "warning" | "error",
+        details: r.details as Record<string, any>,
+      }));
     } catch (error) {
       console.error("Failed to get logs in window:", error);
       return [];
@@ -332,106 +302,104 @@ export class AlertRuleMonitoringService {
   }
 
   // Metric calculation methods
-  private calculateErrorRate(logs: LogEntry[]): number {
-    const totalLogs = logs.length;
+  private calculateErrorRate(logsList: LogEntry[]): number {
+    const totalLogs = logsList.length;
     if (totalLogs === 0) return 0;
 
-    const errorLogs = logs.filter(log => log.level === 'error').length;
+    const errorLogs = logsList.filter((log) => log.level === "error").length;
     return (errorLogs / totalLogs) * 100;
   }
 
-  private calculateErrorCount(logs: LogEntry[]): number {
-    return logs.filter(log => log.level === 'error').length;
+  private calculateErrorCount(logsList: LogEntry[]): number {
+    return logsList.filter((log) => log.level === "error").length;
   }
 
-  private calculateLogCount(logs: LogEntry[]): number {
-    return logs.length;
+  private calculateLogCount(logsList: LogEntry[]): number {
+    return logsList.length;
   }
 
-  private calculateAverageResponseTime(logs: LogEntry[]): number {
-    const logsWithDuration = logs.filter(log => log.details?.duration);
+  private calculateAverageResponseTime(logsList: LogEntry[]): number {
+    const logsWithDuration = logsList.filter((log) => log.details?.duration);
     if (logsWithDuration.length === 0) return 0;
 
     const totalDuration = logsWithDuration.reduce(
-      (sum, log) => sum + (log.details?.duration || 0),
-      0
+      (sum, log) => sum + (Number(log.details?.duration) || 0),
+      0,
     );
     return totalDuration / logsWithDuration.length;
   }
 
-  private calculateMaxResponseTime(logs: LogEntry[]): number {
-    const durations = logs
-      .filter(log => log.details?.duration)
-      .map(log => log.details!.duration!);
+  private calculateMaxResponseTime(logsList: LogEntry[]): number {
+    const durations = logsList
+      .filter((log) => log.details?.duration)
+      .map((log) => Number(log.details!.duration!));
 
     return durations.length > 0 ? Math.max(...durations) : 0;
   }
 
-  private calculate4xxRate(logs: LogEntry[]): number {
-    const httpLogs = logs.filter(log => log.details?.statusCode);
+  private calculate4xxRate(logsList: LogEntry[]): number {
+    const httpLogs = logsList.filter((log) => log.details?.statusCode);
     if (httpLogs.length === 0) return 0;
 
-    const count4xx = httpLogs.filter(log => {
-      const status = log.details?.statusCode;
+    const count4xx = httpLogs.filter((log) => {
+      const status = Number(log.details?.statusCode);
       return status && status >= 400 && status < 500;
     }).length;
 
     return (count4xx / httpLogs.length) * 100;
   }
 
-  private calculate5xxRate(logs: LogEntry[]): number {
-    const httpLogs = logs.filter(log => log.details?.statusCode);
+  private calculate5xxRate(logsList: LogEntry[]): number {
+    const httpLogs = logsList.filter((log) => log.details?.statusCode);
     if (httpLogs.length === 0) return 0;
 
-    const count5xx = httpLogs.filter(log => {
-      const status = log.details?.statusCode;
+    const count5xx = httpLogs.filter((log) => {
+      const status = Number(log.details?.statusCode);
       return status && status >= 500 && status < 600;
     }).length;
 
     return (count5xx / httpLogs.length) * 100;
   }
 
-  private calculateUniqueErrors(logs: LogEntry[]): number {
-    const errorLogs = logs.filter(log => log.level === 'error');
-    const uniqueMessages = new Set(errorLogs.map(log => log.message));
+  private calculateUniqueErrors(logsList: LogEntry[]): number {
+    const errorLogs = logsList.filter((log) => log.level === "error");
+    const uniqueMessages = new Set(errorLogs.map((log) => log.message));
     return uniqueMessages.size;
   }
 
-  /**
-   * Parse threshold value from string
-   */
   private parseThreshold(threshold: string): number {
-    const numericThreshold = parseFloat(threshold.replace(/[^\d.-]/g, ''));
+    const numericThreshold = parseFloat(threshold.replace(/[^\d.-]/g, ""));
     return isNaN(numericThreshold) ? 0 : numericThreshold;
   }
 
-  /**
-   * Evaluate condition against current value and threshold
-   */
-  private evaluateCondition(condition: string, currentValue: number, threshold: number): boolean {
+  private evaluateCondition(
+    condition: string,
+    currentValue: number,
+    threshold: number,
+  ): boolean {
     switch (condition.toLowerCase()) {
-      case 'greater_than':
-      case '>':
+      case "greater_than":
+      case ">":
         return currentValue > threshold;
 
-      case 'greater_than_or_equal':
-      case '>=':
+      case "greater_than_or_equal":
+      case ">=":
         return currentValue >= threshold;
 
-      case 'less_than':
-      case '<':
+      case "less_than":
+      case "<":
         return currentValue < threshold;
 
-      case 'less_than_or_equal':
-      case '<=':
+      case "less_than_or_equal":
+      case "<=":
         return currentValue <= threshold;
 
-      case 'equal':
-      case '==':
+      case "equal":
+      case "==":
         return currentValue === threshold;
 
-      case 'not_equal':
-      case '!=':
+      case "not_equal":
+      case "!=":
         return currentValue !== threshold;
 
       default:
@@ -440,19 +408,16 @@ export class AlertRuleMonitoringService {
     }
   }
 
-  /**
-   * Get or create rule state
-   */
   private getRuleState(ruleId: string): AlertRuleState {
     let state = this.ruleStatesCache.get(ruleId);
 
     if (!state) {
       state = {
         ruleId,
-        lastTriggered: "",
+        lastTriggered: null,
         currentValue: 0,
         triggerCount: 0,
-        windowStart: new Date().toISOString(),
+        windowStart: new Date(),
         isActive: false,
       };
     }
@@ -460,38 +425,54 @@ export class AlertRuleMonitoringService {
     return state;
   }
 
-  /**
-   * Save rule state to index
-   */
   private async saveRuleState(state: AlertRuleState): Promise<void> {
     try {
-      await this.alertRuleStatesIndex.addDocuments([state]);
+      await db
+        .insert(alertRuleStates)
+        .values({
+          ruleId: state.ruleId,
+          lastTriggered: state.lastTriggered,
+          currentValue: sql`${state.currentValue}`,
+          triggerCount: state.triggerCount,
+          windowStart: state.windowStart,
+          isActive: state.isActive,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: alertRuleStates.ruleId,
+          set: {
+            lastTriggered: state.lastTriggered,
+            currentValue: sql`${state.currentValue}`,
+            triggerCount: state.triggerCount,
+            isActive: state.isActive,
+          },
+        });
     } catch (error) {
       console.error("Failed to save rule state:", error);
     }
   }
 
-  /**
-   * Trigger alert based on rule configuration
-   */
   private async triggerAlert(
     rule: AlertRule,
     state: AlertRuleState,
     currentValue: number,
-    threshold: number
+    threshold: number,
   ): Promise<void> {
     try {
       const alertTitle = `Alert: ${rule.name}`;
-      const alertMessage = this.generateAlertMessage(rule, currentValue, threshold);
+      const alertMessage = this.generateAlertMessage(
+        rule,
+        currentValue,
+        threshold,
+      );
       const severity = this.determineSeverity(rule, currentValue, threshold);
 
-      // Determine if email should be sent
-      const sendEmail = rule.channel === 'email';
+      const sendEmail = rule.channel === "email";
       const recipients = this.parseEmailRecipients(rule.notify);
 
       console.log(`🚨 Triggering alert: ${alertTitle}`);
 
-      const alert = await this.alertService.createAlert({
+      await this.alertService.createAlert({
         title: alertTitle,
         message: alertMessage,
         severity,
@@ -509,25 +490,25 @@ export class AlertRuleMonitoringService {
         sendEmail,
         emailRecipients: recipients,
       });
-
-      console.log(`✅ Alert created: ${alert.id}`);
-
     } catch (error) {
       console.error(`Failed to trigger alert for rule ${rule.name}:`, error);
     }
   }
 
-  /**
-   * Generate alert message based on rule and values
-   */
-  private generateAlertMessage(rule: AlertRule, currentValue: number, threshold: number): string {
-    const valueStr = rule.metric.includes('rate') || rule.metric.includes('percent')
-      ? `${currentValue.toFixed(2)}%`
-      : currentValue.toString();
+  private generateAlertMessage(
+    rule: AlertRule,
+    currentValue: number,
+    threshold: number,
+  ): string {
+    const valueStr =
+      rule.metric.includes("rate") || rule.metric.includes("percent")
+        ? `${currentValue.toFixed(2)}%`
+        : currentValue.toString();
 
-    const thresholdStr = rule.metric.includes('rate') || rule.metric.includes('percent')
-      ? `${threshold}%`
-      : threshold.toString();
+    const thresholdStr =
+      rule.metric.includes("rate") || rule.metric.includes("percent")
+        ? `${threshold}%`
+        : threshold.toString();
 
     return `Alert rule "${rule.name}" has been triggered.
 
@@ -542,90 +523,79 @@ Time Window: ${this.windowSizeMs / (1000 * 60)} minutes
 Notification: ${rule.notify}`;
   }
 
-  /**
-   * Get human-readable condition description
-   */
   private getConditionDescription(condition: string): string {
     switch (condition.toLowerCase()) {
-      case 'greater_than':
-      case '>':
-        return 'exceeded';
-      case 'greater_than_or_equal':
-      case '>=':
-        return 'met or exceeded';
-      case 'less_than':
-      case '<':
-        return 'fallen below';
-      case 'less_than_or_equal':
-      case '<=':
-        return 'fallen to or below';
-      case 'equal':
-      case '==':
-        return 'reached exactly';
-      case 'not_equal':
-      case '!=':
-        return 'deviated from';
+      case "greater_than":
+      case ">":
+        return "exceeded";
+      case "greater_than_or_equal":
+      case ">=":
+        return "met or exceeded";
+      case "less_than":
+      case "<":
+        return "fallen below";
+      case "less_than_or_equal":
+      case "<=":
+        return "fallen to or below";
+      case "equal":
+      case "==":
+        return "reached exactly";
+      case "not_equal":
+      case "!=":
+        return "deviated from";
       default:
-        return 'triggered the condition for';
+        return "triggered the condition for";
     }
   }
 
-  /**
-   * Determine alert severity based on rule and values
-   */
-  private determineSeverity(rule: AlertRule, currentValue: number, threshold: number): 'critical' | 'warning' | 'info' {
-    // Default severity mapping based on metric type and value
+  private determineSeverity(
+    rule: AlertRule,
+    currentValue: number,
+    threshold: number,
+  ): "critical" | "warning" | "info" {
     const ratio = currentValue / threshold;
 
-    // For error rates and counts - higher values are more critical
-    if (rule.metric.includes('error') || rule.metric.includes('5xx')) {
-      if (ratio >= 3) return 'critical';
-      if (ratio >= 1.5) return 'warning';
-      return 'info';
+    if (rule.metric.includes("error") || rule.metric.includes("5xx")) {
+      if (ratio >= 3) return "critical";
+      if (ratio >= 1.5) return "warning";
+      return "info";
     }
 
-    // For response times - higher values are more critical
-    if (rule.metric.includes('response_time')) {
-      if (currentValue >= threshold * 2) return 'critical';
-      if (currentValue >= threshold * 1.5) return 'warning';
-      return 'info';
+    if (rule.metric.includes("response_time")) {
+      if (currentValue >= threshold * 2) return "critical";
+      if (currentValue >= threshold * 1.5) return "warning";
+      return "info";
     }
 
-    // For 4xx rates - moderate severity
-    if (rule.metric.includes('4xx')) {
-      if (ratio >= 2) return 'warning';
-      return 'info';
+    if (rule.metric.includes("4xx")) {
+      if (ratio >= 2) return "warning";
+      return "info";
     }
 
-    // Default based on how much the threshold is exceeded
-    if (ratio >= 2) return 'critical';
-    if (ratio >= 1.5) return 'warning';
-    return 'info';
+    if (ratio >= 2) return "critical";
+    if (ratio >= 1.5) return "warning";
+    return "info";
   }
 
-  /**
-   * Parse email recipients from notify string
-   */
   private parseEmailRecipients(notify: string): string[] {
     const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
     const matches = notify.match(emailRegex);
     return matches || [];
   }
 
-  /**
-   * Get monitoring statistics
-   */
   public getMonitoringStats(): {
     isRunning: boolean;
     rulesMonitored: number;
     activeAlerts: number;
     totalTriggers: number;
-    lastProcessedLogId: number;
+    lastProcessedLogTimestamp: Date | null;
   } {
-    const activeAlerts = Array.from(this.ruleStatesCache.values()).filter(state => state.isActive).length;
+    const activeAlerts = Array.from(this.ruleStatesCache.values()).filter(
+      (state) => state.isActive,
+    ).length;
     const totalTriggers = Array.from(this.ruleStatesCache.values()).reduce(
       (sum, state) => sum + state.triggerCount,
-      0
+      0,
     );
 
     return {
@@ -633,28 +603,22 @@ Notification: ${rule.notify}`;
       rulesMonitored: this.ruleStatesCache.size,
       activeAlerts,
       totalTriggers,
-      lastProcessedLogId: this.lastProcessedLogId,
+      lastProcessedLogTimestamp: this.lastProcessedLogTimestamp,
     };
   }
 
-  /**
-   * Get rule states for debugging/monitoring
-   */
   public async getRuleStates(): Promise<AlertRuleState[]> {
     return Array.from(this.ruleStatesCache.values());
   }
 
-  /**
-   * Reset rule state (admin function)
-   */
   public async resetRuleState(ruleId: string): Promise<void> {
     try {
       const state: AlertRuleState = {
         ruleId,
-        lastTriggered: "",
+        lastTriggered: null,
         currentValue: 0,
         triggerCount: 0,
-        windowStart: new Date().toISOString(),
+        windowStart: new Date(),
         isActive: false,
       };
 
@@ -668,16 +632,14 @@ Notification: ${rule.notify}`;
     }
   }
 
-  /**
-   * Cleanup resources
-   */
   public destroy(): void {
     this.stopMonitoring();
     this.ruleStatesCache.clear();
   }
 }
 
-// Factory function to create monitoring service instance
-export function createAlertRuleMonitoringService(config?: MonitoringConfig): AlertRuleMonitoringService {
+export function createAlertRuleMonitoringService(
+  config?: MonitoringConfig,
+): AlertRuleMonitoringService {
   return new AlertRuleMonitoringService(config);
 }

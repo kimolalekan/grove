@@ -1,6 +1,8 @@
-import { MeiliSearch, Index } from "meilisearch";
 import { createEmailService } from "./emailService";
 import { getEmailRateLimiter } from "../utils/rateLimiter";
+import { db } from "../db";
+import { alerts, emailLogs } from "../db/schema";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 interface Alert {
   id: string;
@@ -10,13 +12,13 @@ interface Alert {
   status: "active" | "acknowledged" | "resolved";
   source: string;
   metadata: Record<string, any>;
-  acknowledged_by?: string;
-  acknowledged_at?: string;
-  resolved_at?: string;
-  created_at: string;
-  updated_at: string;
+  acknowledgedBy?: string | null;
+  acknowledgedAt?: Date | null;
+  resolvedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
   timestamp: number;
-  acknowledged?: boolean;
+  acknowledged?: boolean | null;
 }
 
 interface CreateAlertOptions {
@@ -31,111 +33,66 @@ interface CreateAlertOptions {
 
 interface EmailLog {
   id: string;
-  alert_id: string;
+  alert_id: string | null;
   recipient: string;
   subject: string;
   status: "sent" | "failed" | "pending";
-  error_message?: string;
-  sent_at?: string;
-  created_at: string;
+  error_message?: string | null;
+  sent_at?: Date | null;
+  created_at: Date;
 }
 
 interface AlertServiceConfig {
-  meiliSearchHost?: string;
-  meiliSearchKey?: string;
   defaultEmailRecipients?: string[];
 }
 
-class AlertService {
-  private client: MeiliSearch;
-  private alertsIndex: Index;
-  private emailLogsIndex: Index;
+export class AlertService {
   private emailService: ReturnType<typeof createEmailService>;
   private defaultEmailRecipients: string[];
   private rateLimiter = getEmailRateLimiter();
 
   constructor(config: AlertServiceConfig = {}) {
-    this.client = new MeiliSearch({
-      host:
-        config.meiliSearchHost ||
-        process.env.MEILISEARCH_HOST ||
-        "http://localhost:7700",
-      apiKey: config.meiliSearchKey || process.env.MEILISEARCH_KEY || "",
-    });
-
-    this.alertsIndex = this.client.index("alerts");
-    this.emailLogsIndex = this.client.index("email_logs");
     this.emailService = createEmailService();
     this.defaultEmailRecipients = config.defaultEmailRecipients || [];
-
-    this.initializeIndexes();
-  }
-
-  private async initializeIndexes(): Promise<void> {
-    try {
-      await this.alertsIndex.updateSettings({
-        searchableAttributes: ["title", "message", "source"],
-        filterableAttributes: [
-          "severity",
-          "status",
-          "source",
-          "acknowledged",
-          "id",
-        ],
-        sortableAttributes: [
-          "acknowledged",
-          "id",
-          "severity",
-          "source",
-          "timestamp",
-        ],
-      });
-
-      await this.emailLogsIndex.updateSettings({
-        searchableAttributes: ["recipient", "subject"],
-        filterableAttributes: ["alert_id", "status", "sent_at"],
-        sortableAttributes: ["sent_at", "id"],
-      });
-
-      console.log("Alert service indexes initialized");
-    } catch (error) {
-      console.error("Failed to initialize alert service indexes:", error);
-    }
   }
 
   async createAlert(options: CreateAlertOptions): Promise<Alert> {
     try {
-      const now = new Date().toISOString();
+      const now = new Date();
       const alertId = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      const timestamp = Date.now();
-      const newAlert: Alert = {
+      const newAlertData = {
         id: alertId,
         title: options.title,
         message: options.message,
         severity: options.severity,
         source: options.source,
-        status: "active",
+        status: "active" as const,
         metadata: options.metadata || {},
-        created_at: now,
-        updated_at: now,
-        timestamp: timestamp,
+        createdAt: now,
+        updatedAt: now,
+        timestamp: now.getTime(),
         acknowledged: false,
       };
 
-      await this.alertsIndex.addDocuments([newAlert]);
-      console.log(`Alert created: ${newAlert.id} - ${newAlert.title}`);
+      await db.insert(alerts).values(newAlertData);
+
+      console.log(`Alert created: ${newAlertData.id} - ${newAlertData.title}`);
+
+      const alertResponse: Alert = {
+        ...newAlertData,
+      };
 
       // Send email notification if requested and email service is available
       if (options.sendEmail !== false && this.emailService) {
         const recipients =
           options.emailRecipients || this.defaultEmailRecipients;
         if (recipients.length > 0) {
-          await this.sendAlertEmail(newAlert, recipients);
+          await this.sendAlertEmail(alertResponse, recipients);
         }
       }
 
-      return newAlert;
+      return alertResponse;
     } catch (error) {
       console.error("Failed to create alert:", error);
       throw new Error(
@@ -169,17 +126,16 @@ class AlertService {
           );
 
           // Log rate limit failure
-          const emailLog: EmailLog = {
-            id: `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            alert_id: alert.id,
+          const logId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await db.insert(emailLogs).values({
+            id: logId,
+            alertId: alert.id,
             recipient,
             subject: this.renderTemplate(template.subject, alert),
             status: "failed",
-            error_message: `Rate limit exceeded: ${rateLimitCheck.reason}`,
-            created_at: new Date().toISOString(),
-          };
-
-          await this.emailLogsIndex.addDocuments([emailLog]);
+            errorMessage: `Rate limit exceeded: ${rateLimitCheck.reason}`,
+            createdAt: new Date(),
+          });
           continue;
         }
 
@@ -190,18 +146,17 @@ class AlertService {
         );
 
         // Log email attempt
-        const emailLog: EmailLog = {
-          id: `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          alert_id: alert.id,
+        const logId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        await db.insert(emailLogs).values({
+          id: logId,
+          alertId: alert.id,
           recipient,
           subject: this.renderTemplate(template.subject, alert),
           status: emailResult.success ? "sent" : "failed",
-          error_message: emailResult.error || undefined,
-          sent_at: emailResult.success ? new Date().toISOString() : undefined,
-          created_at: new Date().toISOString(),
-        };
-
-        await this.emailLogsIndex.addDocuments([emailLog]);
+          errorMessage: emailResult.error || null,
+          sentAt: emailResult.success ? new Date() : null,
+          createdAt: new Date(),
+        });
 
         if (emailResult.success) {
           console.log(`Alert email sent to ${recipient} for alert ${alert.id}`);
@@ -433,7 +388,10 @@ Grove Alert System - {{datetime}}`,
     rendered = rendered.replace(/\{\{alert\.message\}\}/g, alert.message);
     rendered = rendered.replace(/\{\{alert\.severity\}\}/g, alert.severity);
     rendered = rendered.replace(/\{\{alert\.source\}\}/g, alert.source);
-    rendered = rendered.replace(/\{\{alert\.created_at\}\}/g, alert.created_at);
+    rendered = rendered.replace(
+      /\{\{alert\.created_at\}\}/g,
+      alert.createdAt.toISOString(),
+    );
     rendered = rendered.replace(/\{\{alert\.id\}\}/g, alert.id);
 
     // Replace datetime variables
@@ -458,33 +416,56 @@ Grove Alert System - {{datetime}}`,
     offset?: number;
   }) {
     try {
-      const searchOptions: any = {
-        limit: filters?.limit || 50,
-        offset: filters?.offset || 0,
-        sort: ["id:desc"],
-      };
+      const {
+        search,
+        severity,
+        status,
+        limit = 50,
+        offset = 0,
+      } = filters || {};
 
-      // Build filters
-      const filterArray: string[] = [];
-      if (filters?.severity) {
-        filterArray.push(`severity = "${filters.severity}"`);
-      }
-      if (filters?.status) {
-        filterArray.push(`status = "${filters.status}"`);
-      }
+      const whereConditions = [];
 
-      if (filterArray.length > 0) {
-        searchOptions.filter = filterArray.join(" AND ");
+      if (severity) {
+        whereConditions.push(eq(alerts.severity, severity));
+      }
+      if (status) {
+        whereConditions.push(eq(alerts.status, status));
       }
 
-      const results = await this.alertsIndex.search(
-        filters?.search || "",
-        searchOptions,
-      );
+      if (search) {
+        whereConditions.push(
+          sql`(${alerts.title} ILIKE ${`%${search}%`} OR ${alerts.message} ILIKE ${`%${search}%`})`,
+        );
+      }
+
+      const results = await db
+        .select()
+        .from(alerts)
+        .where(and(...whereConditions))
+        .limit(limit)
+        .offset(offset)
+        .orderBy(desc(alerts.createdAt));
+
+      const countResult = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(alerts)
+        .where(and(...whereConditions));
+
+      const total = Number(countResult[0]?.count) || 0;
+
+      const data: Alert[] = results.map((r) => ({
+        ...r,
+        metadata: r.metadata as Record<string, any>,
+        status: r.status as "active" | "acknowledged" | "resolved",
+        severity: r.severity as "critical" | "warning" | "info",
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
 
       return {
-        data: results.hits as Alert[],
-        total: results.estimatedTotalHits || 0,
+        data,
+        total,
       };
     } catch (error) {
       console.error("Failed to get alerts:", error);
@@ -496,12 +477,23 @@ Grove Alert System - {{datetime}}`,
 
   async getAlertById(alertId: string): Promise<Alert | null> {
     try {
-      const results = await this.alertsIndex.search("", {
-        filter: `id = "${alertId}"`,
-        limit: 1,
-      });
+      const result = await db
+        .select()
+        .from(alerts)
+        .where(eq(alerts.id, alertId))
+        .limit(1);
 
-      return results.hits.length > 0 ? (results.hits[0] as Alert) : null;
+      if (result.length === 0) return null;
+
+      const r = result[0];
+      return {
+        ...r,
+        metadata: r.metadata as Record<string, any>,
+        status: r.status as "active" | "acknowledged" | "resolved",
+        severity: r.severity as "critical" | "warning" | "info",
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      };
     } catch (error) {
       console.error("Failed to get alert by ID:", error);
       throw new Error(
@@ -515,24 +507,34 @@ Grove Alert System - {{datetime}}`,
     acknowledgedBy: string,
   ): Promise<Alert> {
     try {
-      const alert = await this.getAlertById(alertId);
-      if (!alert) {
+      const now = new Date();
+      const result = await db
+        .update(alerts)
+        .set({
+          status: "acknowledged",
+          acknowledgedBy,
+          acknowledgedAt: now,
+          updatedAt: now,
+          acknowledged: true,
+        })
+        .where(eq(alerts.id, alertId))
+        .returning();
+
+      if (result.length === 0) {
         throw new Error("Alert not found");
       }
 
-      const updatedAlert: Alert = {
-        ...alert,
-        status: "acknowledged",
-        acknowledged_by: acknowledgedBy,
-        acknowledged_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        acknowledged: true,
-      };
-
-      await this.alertsIndex.addDocuments([updatedAlert]);
       console.log(`Alert acknowledged: ${alertId} by ${acknowledgedBy}`);
 
-      return updatedAlert;
+      const r = result[0];
+      return {
+        ...r,
+        metadata: r.metadata as Record<string, any>,
+        status: r.status as "active" | "acknowledged" | "resolved",
+        severity: r.severity as "critical" | "warning" | "info",
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      };
     } catch (error) {
       console.error("Failed to acknowledge alert:", error);
       throw new Error(
@@ -543,31 +545,44 @@ Grove Alert System - {{datetime}}`,
 
   async resolveAlert(alertId: string): Promise<Alert> {
     try {
-      const alert = await this.getAlertById(alertId);
-      if (!alert) {
+      const now = new Date();
+      const result = await db
+        .update(alerts)
+        .set({
+          status: "resolved",
+          resolvedAt: now,
+          updatedAt: now,
+          acknowledged: true, // Auto acknowledge on resolve for consistency
+        })
+        .where(eq(alerts.id, alertId))
+        .returning();
+
+      if (result.length === 0) {
         throw new Error("Alert not found");
       }
 
-      const updatedAlert: Alert = {
-        ...alert,
-        status: "resolved",
-        resolved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        acknowledged: true,
+      const updatedAlert = result[0];
+
+      const mappedAlert: Alert = {
+        ...updatedAlert,
+        metadata: updatedAlert.metadata as Record<string, any>,
+        status: updatedAlert.status as "active" | "acknowledged" | "resolved",
+        severity: updatedAlert.severity as "critical" | "warning" | "info",
+        createdAt: updatedAlert.createdAt,
+        updatedAt: updatedAlert.updatedAt,
       };
 
-      await this.alertsIndex.addDocuments([updatedAlert]);
       console.log(`Alert resolved: ${alertId}`);
 
       // Send resolution email if email service is available
       if (this.emailService && this.defaultEmailRecipients.length > 0) {
         await this.sendAlertResolvedEmail(
-          updatedAlert,
+          mappedAlert,
           this.defaultEmailRecipients,
         );
       }
 
-      return updatedAlert;
+      return mappedAlert;
     } catch (error) {
       console.error("Failed to resolve alert:", error);
       throw new Error(
@@ -660,18 +675,17 @@ Grove Alert System - {{datetime}}`,
           [recipient],
         );
 
-        const emailLog: EmailLog = {
-          id: `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          alert_id: alert.id,
+        const logId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        await db.insert(emailLogs).values({
+          id: logId,
+          alertId: alert.id,
           recipient,
           subject: this.renderTemplate(template.subject, alert),
           status: emailResult.success ? "sent" : "failed",
-          error_message: emailResult.error || undefined,
-          sent_at: emailResult.success ? new Date().toISOString() : undefined,
-          created_at: new Date().toISOString(),
-        };
-
-        await this.emailLogsIndex.addDocuments([emailLog]);
+          errorMessage: emailResult.error || null,
+          sentAt: emailResult.success ? new Date() : null,
+          createdAt: new Date(),
+        });
       }
     } catch (error) {
       console.error("Error sending alert resolved emails:", error);
@@ -680,7 +694,7 @@ Grove Alert System - {{datetime}}`,
 
   async deleteAlert(alertId: string): Promise<void> {
     try {
-      await this.alertsIndex.deleteDocument(alertId);
+      await db.delete(alerts).where(eq(alerts.id, alertId));
       console.log(`Alert deleted: ${alertId}`);
     } catch (error) {
       console.error("Failed to delete alert:", error);
@@ -696,18 +710,26 @@ Grove Alert System - {{datetime}}`,
     offset: number = 0,
   ): Promise<EmailLog[]> {
     try {
-      const searchOptions: any = {
-        limit,
-        offset,
-        sort: ["created_at:desc"],
-      };
-
+      const conditions = [];
       if (alertId) {
-        searchOptions.filter = `alert_id = "${alertId}"`;
+        conditions.push(eq(emailLogs.alertId, alertId));
       }
 
-      const results = await this.emailLogsIndex.search("", searchOptions);
-      return results.hits as EmailLog[];
+      const results = await db
+        .select()
+        .from(emailLogs)
+        .where(and(...conditions))
+        .limit(limit)
+        .offset(offset)
+        .orderBy(desc(emailLogs.createdAt));
+
+      return results.map((r) => ({
+        ...r,
+        status: r.status as "sent" | "failed" | "pending",
+        created_at: r.createdAt,
+        sent_at: r.sentAt,
+        alert_id: r.alertId,
+      }));
     } catch (error) {
       console.error("Failed to get email logs:", error);
       throw new Error(
@@ -716,28 +738,18 @@ Grove Alert System - {{datetime}}`,
     }
   }
 
-  /**
-   * Get rate limit statistics for monitoring
-   */
   async getRateLimitStats(): Promise<any> {
     return this.rateLimiter.getAllUsage();
   }
 
-  /**
-   * Reset rate limits for a specific recipient (admin function)
-   */
   async resetRateLimit(recipient: string): Promise<void> {
     this.rateLimiter.resetRecipient(recipient);
   }
 
-  /**
-   * Test email with rate limiting check
-   */
   async sendTestEmail(
     recipient: string,
   ): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      // Check rate limiting for test emails
       const rateLimitCheck = this.rateLimiter.canSendEmail(
         recipient,
         undefined,
@@ -759,6 +771,7 @@ Grove Alert System - {{datetime}}`,
         };
       }
 
+      const now = new Date();
       const testAlert: Alert = {
         id: `test_${Date.now()}`,
         title: "Test Email - Grove Alert System",
@@ -768,9 +781,9 @@ Grove Alert System - {{datetime}}`,
         status: "active",
         source: "test-system",
         metadata: { test: true, timestamp: Date.now() },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        timestamp: Date.now(),
+        createdAt: now,
+        updatedAt: now,
+        timestamp: now.getTime(),
         acknowledged: false,
       };
 
@@ -781,47 +794,36 @@ Grove Alert System - {{datetime}}`,
         [recipient],
       );
 
-      // Log test email attempt
-      const emailLog: EmailLog = {
-        id: `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        alert_id: testAlert.id,
+      const logId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      await db.insert(emailLogs).values({
+        id: logId,
+        alertId: testAlert.id,
         recipient,
         subject: this.renderTemplate(template.subject, testAlert),
         status: emailResult.success ? "sent" : "failed",
-        error_message: emailResult.error || undefined,
-        sent_at: emailResult.success ? new Date().toISOString() : undefined,
-        created_at: new Date().toISOString(),
-      };
-
-      await this.emailLogsIndex.addDocuments([emailLog]);
+        errorMessage: emailResult.error || null,
+        sentAt: emailResult.success ? new Date() : null,
+        createdAt: new Date(),
+      });
 
       return {
         success: emailResult.success,
         message: emailResult.success
-          ? `Test email sent successfully to ${recipient}`
+          ? `Test email sent to ${recipient}`
           : `Failed to send test email: ${emailResult.error}`,
-        data: { testAlert, emailResult },
       };
     } catch (error) {
-      console.error("Test email error:", error);
+      console.error("Failed to send test email:", error);
       return {
         success: false,
-        message: `Test email error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        message: `Internal error: ${error instanceof Error ? error.message : "Unknown error"}`,
       };
     }
   }
 }
 
-// Factory function to create alert service instance
-export function createAlertService(): AlertService {
-  const defaultEmailRecipients = process.env.ALERT_EMAIL_RECIPIENTS
-    ? process.env.ALERT_EMAIL_RECIPIENTS.split(",").map((email) => email.trim())
-    : [];
-
-  return new AlertService({
-    defaultEmailRecipients,
-  });
+export function createAlertService(config?: AlertServiceConfig): AlertService {
+  return new AlertService(config);
 }
 
-export { AlertService };
 export type { CreateAlertOptions, Alert, EmailLog };

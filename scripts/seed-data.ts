@@ -1,16 +1,18 @@
-import { MeiliSearch } from "meilisearch";
+import { db } from "../server/db";
+import {
+  users as usersTable,
+  logs as logsTable,
+  alerts as alertsTable,
+  alertRules as alertRulesTable,
+  auditLogs as auditLogsTable,
+} from "../server/db/schema";
 import dotenv from "dotenv";
+import { sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 
-const client = new MeiliSearch({
-  host: `${process.env.MEILISEARCH_HOST}`,
-  apiKey: process.env.MEILISEARCH_KEY,
-});
-
-const LOGS_INDEX = "logs";
-const ALERTS_INDEX = "alerts";
-const ALERT_RULES_INDEX = "alert_rules";
+const SALT_ROUNDS = 10;
 
 const generateLogEntries = (count: number) => {
   const sources = [
@@ -110,18 +112,16 @@ const generateLogEntries = (count: number) => {
 
     // Generate more realistic timestamps with business hours bias
     let logTime = now - Math.random() * weekInMs;
-    const hour = new Date(logTime).getHours();
-
-    // Reduce weekend and night traffic
-    const dayOfWeek = new Date(logTime).getDay();
+    const date = new Date(logTime);
+    const hour = date.getHours();
+    const dayOfWeek = date.getDay();
     const isBusinessHour = hour >= 8 && hour <= 18;
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     if (!isBusinessHour || isWeekend) {
       if (Math.random() > 0.3) {
-        // 70% chance to skip non-business entries, making business hours more dense
-        logTime = now - Math.random() * 2 * 24 * 60 * 60 * 1000; // Focus on last 2 days
-        const newHour = 8 + Math.random() * 10; // 8 AM to 6 PM
+        logTime = now - Math.random() * 2 * 24 * 60 * 60 * 1000;
+        const newHour = 8 + Math.random() * 10;
         logTime =
           logTime -
           (logTime % (24 * 60 * 60 * 1000)) +
@@ -129,64 +129,43 @@ const generateLogEntries = (count: number) => {
       }
     }
 
-    const timestamp = new Date(logTime).toISOString();
+    const timestamp = new Date(logTime);
 
-    // Check if this log falls within an error incident
-    const duringIncident = errorIncidents.some(
-      (incident) =>
-        logTime >= incident.startTime &&
-        logTime <= incident.startTime + incident.duration,
-    );
-
-    // Determine log level with realistic distribution
-    let level: "info" | "warning" | "error";
+    // Determine log level
     const endpointProfile =
       endpointProfiles[path as keyof typeof endpointProfiles];
     const baseErrorRate = endpointProfile?.errorRate || 0.02;
+    const duringIncident = errorIncidents.some(
+      (inc) =>
+        logTime >= inc.startTime && logTime <= inc.startTime + inc.duration,
+    );
     const errorRate = duringIncident ? baseErrorRate * 10 : baseErrorRate;
 
     const rand = Math.random();
-    if (rand < errorRate) {
-      level = "error";
-    } else if (rand < errorRate + 0.08) {
-      level = "warning";
-    } else {
-      level = "info";
-    }
+    let level: "info" | "warning" | "error";
+    if (rand < errorRate) level = "error";
+    else if (rand < errorRate + 0.08) level = "warning";
+    else level = "info";
 
-    // Generate realistic status codes based on log level and endpoint
     let statusCode;
     if (level === "error") {
-      if (path === "/api/auth/login") {
-        statusCode = [401, 403][Math.floor(Math.random() * 2)];
-      } else if (path === "/api/files/upload") {
-        statusCode = [413, 400, 500][Math.floor(Math.random() * 3)];
-      } else {
-        statusCode = [400, 404, 500, 502, 503][Math.floor(Math.random() * 5)];
-      }
+      statusCode = [400, 401, 403, 404, 500, 502, 503][
+        Math.floor(Math.random() * 7)
+      ];
     } else if (level === "warning") {
       statusCode = [200, 201, 202, 429][Math.floor(Math.random() * 4)];
     } else {
       statusCode = method === "POST" ? 201 : method === "DELETE" ? 204 : 200;
     }
 
-    // Generate realistic response times based on endpoint and level
     const baseTime = endpointProfile?.baseTime || 150;
     let duration = baseTime;
+    if (level === "error") duration *= 2 + Math.random() * 3;
+    else if (level === "warning") duration *= 1.5 + Math.random() * 1;
+    else duration *= 0.7 + Math.random() * 0.6;
+    duration += Math.random() * 100 - 50;
 
-    if (level === "error") {
-      duration = baseTime * (2 + Math.random() * 3); // 2-5x slower
-    } else if (level === "warning") {
-      duration = baseTime * (1.5 + Math.random() * 1); // 1.5-2.5x slower
-    } else {
-      duration = baseTime * (0.7 + Math.random() * 0.6); // 0.7-1.3x normal
-    }
-
-    // Add some random variation
-    duration = duration + Math.random() * 100 - 50;
-
-    const log = {
-      id: i + 1,
+    logs.push({
       timestamp,
       project,
       source,
@@ -206,11 +185,8 @@ const generateLogEntries = (count: number) => {
             : undefined,
         size: `${Math.floor(Math.random() * 10000) + 100}B`,
       },
-    };
-
-    logs.push(log);
+    });
   }
-
   return logs;
 };
 
@@ -227,323 +203,245 @@ const generateActiveAlerts = (count: number) => {
     "warning",
     "info",
   ];
-
   const messageTemplates = {
     critical: [
-      "Service is down and not responding",
-      "Database connection pool exhausted",
+      "Service is down",
+      "DB connection pool exhausted",
       "Memory usage critical at 95%",
-      "SSL certificate has expired",
-      "Disk space critical - 95% full",
-      "Multiple service failures detected",
-      "Authentication service completely down",
     ],
     warning: [
       "High error rate detected ({}%)",
       "Response time above threshold ({}ms)",
-      "Memory usage high at {}%",
-      "Disk space warning - {}% full",
-      "CPU usage above 80%",
-      "Database slow query detected",
-      "Cache hit ratio below threshold",
-      "SSL certificate expires in {} days",
     ],
-    info: [
-      "New deployment completed successfully",
-      "Scheduled maintenance window started",
-      "Configuration updated successfully",
-      "Backup completed successfully",
-      "Health check passed",
-      "Auto-scaling triggered",
-      "Log rotation completed",
-      "Security scan completed",
-    ],
+    info: ["New deployment successful", "Health check passed"],
   };
 
   const alerts = [];
   const now = Date.now();
-  const dayInMs = 24 * 60 * 60 * 1000;
-
-  // Generate alerts with more realistic severity distribution
-  const severityDistribution = [
-    ...Array(2).fill("critical"), // 2/15 = ~13%
-    ...Array(8).fill("warning"), // 8/15 = ~53%
-    ...Array(5).fill("info"), // 5/15 = ~33%
-  ];
-
   for (let i = 0; i < count; i++) {
-    const severity = severityDistribution[
-      Math.floor(Math.random() * severityDistribution.length)
-    ] as "critical" | "warning" | "info";
-    const source = sources[Math.floor(Math.random() * sources.length)];
+    const severity = severities[Math.floor(Math.random() * severities.length)];
+    const ageInDays = Math.random() * 5;
+    const timestamp = now - ageInDays * 24 * 60 * 60 * 1000;
 
-    // Recent alerts are more likely to be unacknowledged
-    const ageInDays = Math.random() * 5; // 0-5 days old
-    const timestamp = new Date(now - ageInDays * dayInMs).toISOString();
-
-    let message =
-      messageTemplates[severity][
-        Math.floor(Math.random() * messageTemplates[severity].length)
-      ];
-
-    // Replace placeholders with realistic values
-    if (severity === "warning") {
-      if (message.includes("error rate")) {
-        message = message.replace("{}", (Math.random() * 8 + 3).toFixed(1));
-      } else if (message.includes("Response time")) {
-        message = message.replace(
-          "{}",
-          Math.floor(Math.random() * 1500 + 800).toString(),
-        );
-      } else if (message.includes("Memory usage")) {
-        message = message.replace(
-          "{}",
-          Math.floor(Math.random() * 15 + 80).toString(),
-        );
-      } else if (message.includes("Disk space")) {
-        message = message.replace(
-          "{}",
-          Math.floor(Math.random() * 10 + 80).toString(),
-        );
-      } else if (message.includes("expires in")) {
-        message = message.replace(
-          "{}",
-          Math.floor(Math.random() * 25 + 5).toString(),
-        );
-      }
-    }
-
-    // Acknowledgment logic: newer critical alerts less likely to be acknowledged
-    let acknowledgmentRate = 0.4; // Base 40% acknowledgment rate
-    if (severity === "critical") {
-      acknowledgmentRate = ageInDays < 1 ? 0.1 : 0.6; // Recent critical alerts rarely acknowledged
-    } else if (severity === "info") {
-      acknowledgmentRate = 0.8; // Info alerts often acknowledged quickly
-    }
-
-    const alert = {
-      id: i + 1,
-      message,
-      timestamp,
+    alerts.push({
+      id: `alert_${i + 1}`,
+      title: `${severity.toUpperCase()} Alert`,
+      message:
+        messageTemplates[severity][
+          Math.floor(Math.random() * messageTemplates[severity].length)
+        ],
       severity,
-      source,
-      acknowledged: Math.random() < acknowledgmentRate,
-    };
-
-    alerts.push(alert);
+      source: sources[Math.floor(Math.random() * sources.length)],
+      status: Math.random() < 0.4 ? "acknowledged" : "active",
+      timestamp, // doublePrecision index field
+      acknowledged: Math.random() < 0.4,
+      createdAt: new Date(timestamp),
+      updatedAt: new Date(timestamp),
+    });
   }
-
   return alerts;
 };
 
 const generateAlertRules = () => {
-  const rules = [
+  return [
     {
-      id: 1,
+      id: "rule_1",
       name: "High Error Rate",
       condition: "greater than",
       threshold: "5%",
       metric: "error_rate",
-      notify: "admin@company.com",
-      channel: "email" as const,
+      notify: "admin@grove.dev",
+      channel: "email",
       enabled: true,
     },
     {
-      id: 2,
+      id: "rule_2",
       name: "Response Time Alert",
       condition: "greater than",
       threshold: "1000ms",
       metric: "response_time",
       notify: "+1234567890",
-      channel: "sms" as const,
+      channel: "sms",
       enabled: true,
     },
     {
-      id: 3,
+      id: "rule_3",
       name: "High CPU Usage",
       condition: "greater than",
       threshold: "85%",
       metric: "cpu_usage",
-      notify: "ops-team@company.com",
-      channel: "email" as const,
-      enabled: true,
-    },
-    {
-      id: 4,
-      name: "Memory Usage Warning",
-      condition: "greater than",
-      threshold: "90%",
-      metric: "memory_usage",
-      notify: "+1234567891",
-      channel: "sms" as const,
-      enabled: false,
-    },
-    {
-      id: 5,
-      name: "Database Connection Issues",
-      condition: "greater than",
-      threshold: "10",
-      metric: "db_connection_errors",
-      notify: "dba@company.com",
-      channel: "email" as const,
-      enabled: true,
-    },
-    {
-      id: 6,
-      name: "Disk Space Alert",
-      condition: "greater than",
-      threshold: "85%",
-      metric: "disk_usage",
-      notify: "+1234567892",
-      channel: "sms" as const,
+      notify: "ops@grove.dev",
+      channel: "email",
       enabled: true,
     },
   ];
-
-  return rules;
 };
 
 const generateSystemMetrics = (count: number) => {
-  const servers = [
-    "web-server-1",
-    "api-server-1",
-    "db-server-1",
-    "cache-server-1",
-  ];
-  const projects = ["web-app", "api-service", "mobile-app", "admin-dashboard"];
-
   const metrics = [];
   const now = Date.now();
-  const weekInMs = 7 * 24 * 60 * 60 * 1000;
-
   for (let i = 0; i < count; i++) {
-    const server = servers[Math.floor(Math.random() * servers.length)];
-    const project = projects[Math.floor(Math.random() * projects.length)];
-
-    // Generate a timestamp within the last week, with business hours bias
-    let logTime = now - Math.random() * weekInMs;
-    const hour = new Date(logTime).getHours();
-    const dayOfWeek = new Date(logTime).getDay();
-    const isBusinessHour = hour >= 8 && hour <= 18;
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-    if (!isBusinessHour || isWeekend) {
-      if (Math.random() > 0.3) {
-        logTime = now - Math.random() * 2 * 24 * 60 * 60 * 1000;
-        const newHour = 8 + Math.random() * 10;
-        logTime =
-          logTime -
-          (logTime % (24 * 60 * 60 * 1000)) +
-          newHour * 60 * 60 * 1000;
-      }
-    }
-
-    const timestamp = new Date(logTime).toISOString();
-
-    // Generate realistic system metrics
+    const logTime = now - Math.random() * 7 * 24 * 60 * 60 * 1000;
     const cpuUsage = Math.max(5, Math.min(95, 20 + Math.random() * 75));
     const memoryUsage = Math.max(10, Math.min(90, 30 + Math.random() * 60));
-    const diskUsage = Math.max(20, Math.min(95, 40 + Math.random() * 50));
-    const networkRx = Math.max(100, Math.random() * 5000);
-    const networkTx = Math.max(100, Math.random() * 3000);
 
-    const metric = {
-      id: `system_metric_${i + 1}`,
-      timestamp,
-      project,
+    metrics.push({
+      timestamp: new Date(logTime),
+      project: "infrastructure",
       source: "system_metrics",
       level: "info",
-      message: "",
-      cpu: {
-        usage: cpuUsage,
-        cores: 4 + Math.floor(Math.random() * 8),
+      message: "System health check",
+      details: {
+        cpu: { usage: cpuUsage / 100, cores: 8 },
+        memory: { usage_percent: memoryUsage, total: "16GB" },
+        server: `server-${Math.floor(Math.random() * 3) + 1}`,
       },
-      memory: {
-        usage_percent: memoryUsage,
-        total: `${Math.floor(Math.random() * 8 + 8)}GB`,
-        free: `${Math.floor((100 - memoryUsage) * 0.01 * (8 + Math.random() * 8))}GB`,
-      },
-      disk: {
-        usage: {
-          "/": {
-            usage_percent: diskUsage,
-            total: "500GB",
-            free: `${Math.floor((100 - diskUsage) * 5)}GB`,
-          },
-        },
-      },
-      network: {
-        eth0: {
-          rx_bytes: networkRx,
-          tx_bytes: networkTx,
-          rx_rate_bytes_per_sec: networkRx / 60,
-          tx_rate_bytes_per_sec: networkTx / 60,
-        },
-      },
-    };
-
-    metrics.push(metric);
+    });
   }
-
   return metrics;
+};
+
+const generateAuditLogs = (count: number) => {
+  const actions = [
+    "LOAN_CREATED",
+    "LOAN_UPDATED",
+    "CREDIT_SCORE_CREATED",
+    "FINANCIAL_STATE_CREATED",
+    "USER_LOGIN",
+    "USER_PROFILE_UPDATED",
+    "USER_PROFILE_CREATED",
+  ];
+  const entityTypes = [
+    "loan",
+    "credit_score",
+    "financial_state",
+    "user",
+    "system",
+  ];
+  const users = ["admin", "ops_lead", "dev_manager", "security_bot"];
+
+  const logs = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const action = actions[Math.floor(Math.random() * actions.length)];
+    let entityType = "system";
+    if (action.startsWith("LOAN")) entityType = "loan";
+    else if (action.startsWith("CREDIT")) entityType = "credit_score";
+    else if (action.startsWith("FINANCIAL")) entityType = "financial_state";
+    else if (action.startsWith("USER")) entityType = "user";
+
+    const timestamp = new Date(now - Math.random() * 5 * 24 * 60 * 60 * 1000);
+
+    logs.push({
+      action,
+      entityType,
+      entityId: `${entityType}_${Math.floor(Math.random() * 1000)}`,
+      userId: users[Math.floor(Math.random() * users.length)],
+      details: {
+        message: `Action ${action} performed on ${entityType}`,
+        browser: "Chrome",
+        os: "macOS",
+      },
+      ipAddress: `10.0.0.${Math.floor(Math.random() * 255)}`,
+      timestamp,
+    });
+  }
+  return logs;
 };
 
 const seedData = async () => {
   try {
-    console.log("🌱 Starting data seeding...");
+    console.log("🌱 Starting data seeding to PostgreSQL...");
 
-    // Generate sample data
-    console.log("📊 Generating log entries...");
-    const logEntries = generateLogEntries(1000); // More logs for better metrics
-
-    console.log("🖥️ Generating system metrics...");
-    const systemMetrics = generateSystemMetrics(500);
-
-    console.log("🚨 Generating active alerts...");
-    const activeAlerts = generateActiveAlerts(35); // More varied alerts
-
-    console.log("⚙️ Generating alert rules...");
-    const alertRules = generateAlertRules();
-
-    // Get indexes
-    const logsIndex = client.index(LOGS_INDEX);
-    const alertsIndex = client.index(ALERTS_INDEX);
-    const alertRulesIndex = client.index(ALERT_RULES_INDEX);
-
-    // Clear existing data
     console.log("🧹 Clearing existing data...");
-    // await logsIndex.deleteAllDocuments();
-    await alertsIndex.deleteAllDocuments();
-    await alertRulesIndex.deleteAllDocuments();
+    await db.delete(auditLogsTable);
+    await db.delete(logsTable);
+    await db.delete(alertsTable);
+    await db.delete(alertRulesTable);
+    await db.delete(usersTable);
 
-    // Wait a bit for the deletion to process
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    console.log("📊 Generating entries...");
+    const sampleUsers = [
+      {
+        id: "user_1",
+        name: "User One",
+        email: "user1@example.com",
+        role: "user",
+      },
+      {
+        id: "user_2",
+        name: "User Two",
+        email: "user2@example.com",
+        role: "user",
+      },
+      {
+        id: "user_3",
+        name: "User Three",
+        email: "user3@example.com",
+        role: "user",
+      },
+      {
+        id: "customer_1",
+        name: "Customer One",
+        email: "c1@example.com",
+        role: "customer",
+      },
+      {
+        id: "customer_2",
+        name: "Customer Two",
+        email: "c2@example.com",
+        role: "customer",
+      },
+      {
+        id: "provider_1",
+        name: "Provider One",
+        email: "p1@example.com",
+        role: "provider",
+      },
+      { id: "admin", name: "Admin", email: "admin@grove.dev", role: "admin" },
+    ];
 
-    // Seed logs
-    console.log("📝 Seeding log entries...");
-    await logsIndex.addDocuments([...logEntries, ...systemMetrics]);
+    const hashedPassword = await bcrypt.hash("Grove12345", SALT_ROUNDS);
+    const usersToInsert = sampleUsers.map((u) => ({
+      ...u,
+      password: hashedPassword,
+      status: "active" as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
 
-    // Seed active alerts
-    console.log("🚨 Seeding active alerts...");
-    await alertsIndex.addDocuments(activeAlerts);
+    await db.insert(usersTable).values(usersToInsert);
 
-    // Seed alert rules
-    console.log("⚙️ Seeding alert rules...");
-    await alertRulesIndex.addDocuments(alertRules);
+    const userIds = sampleUsers.map((u) => u.id);
+    const logEntries = generateLogEntries(500);
+    const systemMetrics = generateSystemMetrics(100);
+    const activeAlerts = generateActiveAlerts(20);
+    const alertRules = generateAlertRules();
+    const auditLogs = generateAuditLogs(100);
+
+    console.log("📝 Inserting log entries...");
+    const allLogs = [...logEntries, ...systemMetrics];
+    for (let i = 0; i < allLogs.length; i += 100) {
+      await db.insert(logsTable).values(allLogs.slice(i, i + 100));
+    }
+
+    console.log("🚨 Inserting alerts...");
+    await db.insert(alertsTable).values(activeAlerts);
+
+    console.log("⚙️ Inserting alert rules...");
+    await db.insert(alertRulesTable).values(alertRules);
+
+    console.log("📜 Inserting audit logs...");
+    await db.insert(auditLogsTable).values(auditLogs);
 
     console.log("✅ Data seeding completed successfully!");
-    console.log(`   - ${logEntries.length} log entries`);
-    console.log(`   - ${systemMetrics.length} system metrics`);
-    console.log(`   - ${activeAlerts.length} active alerts`);
-    console.log(`   - ${alertRules.length} alert rules`);
   } catch (error) {
     console.error("❌ Error seeding data:", error);
     process.exit(1);
   }
 };
 
-// Run the seed function if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1].endsWith("seed-data.ts")) {
   seedData()
     .then(() => {
       console.log("🎉 Seeding process completed!");

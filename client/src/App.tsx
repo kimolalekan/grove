@@ -10,6 +10,7 @@ import Logs from "@/pages/logs";
 import Alerts from "@/pages/alerts";
 import Users from "@/pages/users";
 import Apikeys from "@/pages/apikeys";
+import Audits from "@/pages/audits";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/components/layout";
 function Router() {
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/alerts" component={Alerts} />
       <Route path="/users" component={Users} />
       <Route path="/apikeys" component={Apikeys} />
+      <Route path="/audits" component={Audits} />
       <Route component={NotFound} />
     </Switch>
   );

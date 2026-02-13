@@ -9,18 +9,18 @@
 
 </div>
 
-
-
 ![image1](./assets/screenshot1.png)
 ![image2](./assets/screenshot2.png)
 
 ---
 
 ## Table of Contents
+
 1. [Introduction](#introduction)
 2. [Features](#features)
-3. [Installation](#installation)
-5. [Configuration](#configuration)
+3. [Architecture](#architecture)
+4. [Installation](#installation)
+5. [Audit Trails](#audit-trails)
 6. [Dashboard Usage](#dashboard-usage)
 7. [Troubleshooting](#troubleshooting)
 8. [Contributing](#contributing)
@@ -28,106 +28,137 @@
 ---
 
 ## Introduction
-**Grove** is a simple log management (multiple platforms) dashboard designed to aggregate, search, and visualize logs from various sources like Apache, Nginx, system logs, PM2, Laravel, and custom logs. It uses **React** for the frontend, **Express** for the backend, and **Meilisearch** for fast log indexing and search.
+
+**Grove** is a modern log management and audit trail dashboard. Originally designed for simple log aggregation, it has evolved into a comprehensive system for tracking system events, administrative actions, and business-specific audits (Loans, Financial States, etc.). It uses **React** for the frontend, **Express** for the backend, and **PostgreSQL** with **Drizzle ORM** for reliable, type-safe data management.
 
 ---
 
 ## Features
-- **Real-time Log Aggregation**: Collect logs from multiple sources.
-- **Fast Search**: Powered by Meilisearch for instant log retrieval.
-- **Customizable Dashboard**: Filter logs by source, time range, and keywords.
-- **Log Transport**: Bash scripts and systemd services for log collection.
-- **User-friendly UI**: Dark theme, interactive graphs, and log previews.
+
+- **Real-time Log Aggregation**: Collect system and application logs from multiple sources.
+- **Comprehensive Audit Trails**: Track administrative changes and user activity with detailed context.
+- **External Audit Ingestion**: API endpoint to receive and visualize audits from external business systems.
+- **Business Entity Visualization**: Dedicated views for tracking events related to `loan`, `financial_state`, `credit_score`, and `user`.
+- **Flexible Search & Filtering**: Advanced filtering by action, entity type, user, and source.
+- **Modern UI/UX**: Dark theme, interactive charts, and premium dashboard design.
 
 ---
 
+## Architecture
+
+- **Frontend**: React (Vite), TanStack Query, Shadcn UI, Lucide Icons.
+- **Backend**: Node.js, Express, TypeScript.
+- **Database**: PostgreSQL with Drizzle ORM for schema management and migrations.
+- **Transportation**: Bash-based log transport scripts for remote log collection.
+
+---
 
 ## Installation
 
 ### Prerequisites
+
 - Node.js (v20+)
-- Meilisearch (v1.0+)
-- Bash (for log transport)
-- systemd (for log transport service)
+- PostgreSQL (v15+)
+- Yarn or NPM
 
 ### Steps
+
 1. **Clone the Repository**:
+
    ```bash
    git clone https://github.com/your-repo/grove.git
    cd grove
    ```
 
 2. **Install Dependencies**:
+
    ```bash
    yarn install
    ```
 
-3. **Set Up Meilisearch**:
-   ```bash
-   curl -L https://install.meilisearch.com | sh
-   ./meilisearch --master-key="YOUR_MASTER_KEY"
+3. **Configure Environment**:
+   Create a `.env` file in the root directory:
+
+   ```env
+   DATABASE_URL=postgres://user:password@localhost:5432/grove
+   VITE_PUBLIC_API_KEY=your_development_key
    ```
 
-4. **Configure Environment**:
-   Create a `.env` file:
-   - Copy
+4. **Initialize Database**:
 
-5. **For Development**:
+   ```bash
+   yarn drizzle-kit generate
+   yarn drizzle-kit migrate
+   yarn seed
+   ```
+
+5. **Start Development Server**:
    ```bash
    yarn dev
    ```
 
-6. **For Production**:
-   ```bash
-   yarn production
-   yarn production:restart
-   ```
+---
 
-## Configuration
+## Audit Trails
 
-### Meilisearch
-- Update the `MEILI_URL` and `MEILI_API_KEY` in `.env`.
-- Configure Meilisearch indexes for each log type (e.g., `apache`, `nginx`).
+### Internal Auditing
 
-### Log Sources
-- Copy [pipeline/setup.sh](/pipeline/setup.sh) and run on the server you have the logs.
-- Copy [pipeline/grove.sh](/pipeline/grove.sh) and paste inside `/etc/grove/grove.sh`
+Grove automatically tracks critical internal actions:
 
-### Log Transport
-```sh
-sudo systemctl daemon-reload
-sudo systemctl enable grove
-sudo systemctl start grove
+- API Key Lifecycle (Created, Revoked, Deleted)
+- User Authentication & Profile Updates
+- Alert Acknowledgment & Resolution
+
+### External Ingestion API
+
+You can push audits from external systems using a simple POST request:
+
+**Endpoint**: `POST /api/audits/ingest`
+**Auth**: Requires a valid ` Grove API Key` in the `Authorization` header.
+
+**Payload Example**:
+
+```json
+{
+  "action": "LOAN_APPROVED",
+  "entityType": "loan",
+  "entityId": "loan_8892",
+  "userId": "customer_42",
+  "details": {
+    "amount": 5000,
+    "interestRate": 0.05
+  }
+}
 ```
 
+---
 
 ## Dashboard Usage
 
 ### Accessing the Dashboard
-- Open `http://localhost:3211` in your browser.
 
-### Features
-- **Search**: Use the search bar to find logs by keyword.
-- **Filters**: Filter logs by source (e.g., Apache, Nginx) or time range.
-- **Graphs**: Visualize log trends over time.
-- **Log Preview**: Click on a log entry to see details.
+- Open `http://localhost:3211` (default port).
+
+### Navigating Audits
+
+- Click **Audits** in the sidebar to view the global audit trail.
+- Use filters for **Action** or **Entity Type** (e.g., `loan`) to find specific events.
+- Click the **Eye Icon** on any row to see full JSON metadata and IP address context.
 
 ---
-
 
 ## Troubleshooting
 
 ### Common Issues
-- **Meilisearch Connection**: Ensure Meilisearch is running and the API key is correct.
-- **Grove Service**: Check systemd status with `systemctl status grove.service`.
-- **Log Transport**: Check Grove logs with `tail -f /var/log/grove.log`.
-- **Dashboard Errors**: Verify Grove frontend is running on the correct port.
+
+- **Database Connection**: Verify your `DATABASE_URL` is correct and PostgreSQL is accepting connections.
+- **Migrations**: If you see "table not found" errors, ensure you've run `yarn drizzle-kit migrate`.
+- **API Key Required**: Ensure your frontend has `VITE_PUBLIC_API_KEY` set for development.
 
 ---
 
 ## Contributing
+
 1. Fork the repository.
 2. Create a feature branch.
 3. Submit a pull request.
-
----

@@ -12,16 +12,11 @@ export interface EmailConfig {
   testEmail?: string;
 }
 
-export interface MeiliSearchConfig {
-  host: string;
-  apiKey: string;
-}
-
 export interface AppConfig {
   nodeEnv: string;
   port: number;
   email: EmailConfig | null;
-  meilisearch: MeiliSearchConfig;
+  databaseUrl: string;
   apiKeys: string[];
 }
 
@@ -93,31 +88,20 @@ function parseEmailConfig(): EmailConfig | null {
   };
 }
 
-function parseMeiliSearchConfig(): MeiliSearchConfig {
-  const host = process.env.MEILISEARCH_HOST || "http://localhost:7700";
-  const apiKey = process.env.MEILISEARCH_KEY || "";
-
-  try {
-    new URL(host);
-  } catch (error) {
-    throw new ConfigurationError(
-      `Invalid MEILISEARCH_HOST format: ${host}. Must be a valid URL.`,
-    );
-  }
-
-  return {
-    host,
-    apiKey,
-  };
-}
-
 function parseAppConfig(): AppConfig {
   const nodeEnv = process.env.NODE_ENV;
   const port: number = parseInt(process.env.PORT, 10);
+  const databaseUrl = process.env.DATABASE_URL;
 
   if (isNaN(port) || port <= 0 || port > 65535) {
     throw new ConfigurationError(
       `Invalid PORT: ${process.env.PORT}. Must be a number between 1 and 65535.`,
+    );
+  }
+
+  if (!databaseUrl) {
+    throw new ConfigurationError(
+      "DATABASE_URL environment variable is required.",
     );
   }
 
@@ -135,7 +119,7 @@ function parseAppConfig(): AppConfig {
     nodeEnv,
     port,
     email: parseEmailConfig(),
-    meilisearch: parseMeiliSearchConfig(),
+    databaseUrl,
     apiKeys,
   };
 }
@@ -146,10 +130,7 @@ export function printConfigSummary(config: AppConfig): void {
 
   console.log(`Environment: ${config.nodeEnv}`);
   console.log(`Port: ${config.port}`);
-  console.log(`MeiliSearch Host: ${config.meilisearch.host}`);
-  console.log(
-    `MeiliSearch API Key: ${config.meilisearch.apiKey ? "***configured***" : "not set"}`,
-  );
+  console.log(`Database: Configured`);
 
   if (config.email) {
     console.log("\n📧 Email Configuration:");
@@ -211,9 +192,8 @@ export function generateEnvTemplate(): string {
 NODE_ENV=development
 PORT=3000
 
-# MeiliSearch Configuration
-MEILISEARCH_HOST=http://localhost:7700
-MEILISEARCH_KEY=your-master-key-here
+# Database Configuration (PostgreSQL)
+DATABASE_URL=postgresql://user:password@localhost:5432/grove_db
 
 # Email Configuration (Optional - for alert notifications)
 # Gmail Example:
@@ -231,19 +211,6 @@ TEST_EMAIL=test@company.com
 
 # API Keys for authentication (comma-separated)
 API_KEYS=your-api-key-1,your-api-key-2
-
-# Additional Email Provider Examples:
-# Outlook/Hotmail:
-# EMAIL_HOST=smtp-mail.outlook.com
-# EMAIL_PORT=587
-
-# Yahoo:
-# EMAIL_HOST=smtp.mail.yahoo.com
-# EMAIL_PORT=587
-
-# Custom SMTP:
-# EMAIL_HOST=smtp.yourdomain.com
-# EMAIL_PORT=465  # Use 465 for SSL, 587 for TLS
 `;
 }
 
