@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeftIcon,
@@ -22,7 +23,13 @@ import {
   UserIcon,
   TagIcon,
   ActivityIcon,
+  CalendarIcon,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 import dayjs from "dayjs";
 
 interface AuditLog {
@@ -48,6 +56,11 @@ export default function Audits() {
   const [selectedAction, setSelectedAction] = useState("all");
   const [selectedEntityType, setSelectedEntityType] = useState("all");
   const [selectedUser, setSelectedUser] = useState("all");
+  const [selectedTimeRange, setSelectedTimeRange] = useState("24");
+  const [dateRange, setDateRange] = useState({
+    from: null as Date | null,
+    to: null as Date | null,
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [selectedAudit, setSelectedAudit] = useState<AuditLog | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -60,6 +73,9 @@ export default function Audits() {
       selectedAction,
       selectedEntityType,
       selectedUser,
+      selectedTimeRange,
+      dateRange.from,
+      dateRange.to,
       currentPage,
     ],
     queryFn: async () => {
@@ -69,6 +85,19 @@ export default function Audits() {
       if (selectedEntityType !== "all")
         searchParams.append("entityType", selectedEntityType);
       if (selectedUser !== "all") searchParams.append("userId", selectedUser);
+
+      if (selectedTimeRange) {
+        searchParams.append("timeRange", selectedTimeRange);
+      }
+
+      if (selectedTimeRange === "custom") {
+        if (dateRange.from) {
+          searchParams.append("from", dateRange.from.toISOString());
+        }
+        if (dateRange.to) {
+          searchParams.append("to", dateRange.to.toISOString());
+        }
+      }
 
       searchParams.append("limit", itemsPerPage.toString());
       searchParams.append(
@@ -192,6 +221,79 @@ export default function Audits() {
                 <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
+
+            <Select
+              value={selectedTimeRange}
+              onValueChange={setSelectedTimeRange}
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Time Range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Last hour</SelectItem>
+                <SelectItem value="6">Last 6 hours</SelectItem>
+                <SelectItem value="12">Last 12 hours</SelectItem>
+                <SelectItem value="24">Last 24 hours</SelectItem>
+                <SelectItem value="72">Last 3 days</SelectItem>
+                <SelectItem value="168">Last 7 days</SelectItem>
+                <SelectItem value="custom">Custom range</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {selectedTimeRange === "custom" && (
+              <div className="flex gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-48 justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {dateRange.from ? (
+                        format(dateRange.from, "MMM dd, yyyy")
+                      ) : (
+                        <span>Start date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dateRange.from || undefined}
+                      onSelect={(date) =>
+                        setDateRange({ ...dateRange, from: date || null })
+                      }
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-48 justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {dateRange.to ? (
+                        format(dateRange.to, "MMM dd, yyyy")
+                      ) : (
+                        <span>End date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dateRange.to || undefined}
+                      onSelect={(date) =>
+                        setDateRange({ ...dateRange, to: date || null })
+                      }
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
 
             <div className="relative col-span-1 sm:col-span-2">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
