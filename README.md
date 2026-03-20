@@ -1,10 +1,12 @@
 <p align="center">
   <a href="#">
-    <img src="https://raw.githubusercontent.com/kimolalekan/grove/main/assets/grove-wordmark.png">
+    <img src="https://raw.githubusercontent.com/kimolalekan/grove/main/assets/grove-wordmark.png" style="height: 100px;">
   </a>
 </p>
 <div align="center">
+
 [![Build Pipeline](https://github.com/kimolalekan/grove/actions/workflows/build.yml/badge.svg)](https://github.com/kimolalekan/grove/actions/workflows/build.yml)
+
 </div>
 
 ![image1](./assets/screenshot1.png)
