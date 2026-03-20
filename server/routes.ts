@@ -384,19 +384,80 @@ const registerRoutes = async (app: Express): Promise<Server> => {
     },
   );
 
-  app.post(
-    "/api/audits/ingest",
+  app.get(
+    "/api/audits/actions",
+    authenticateApiKey,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const { action, entityType, entityId, userId, details, timestamp } =
-          req.body;
+        // Return a list of distinct audit actions so the client can build dynamic filters
+        const results = await db
+          .selectDistinct({ action: auditLogs.action })
+          .from(auditLogs);
 
-        if (!action || !entityType) {
+        // Normalize the response to be an array of action strings
+        const actions = (results || [])
+          .map((r: any) => r.action)
+          .filter(Boolean);
+        res.json({ success: true, data: actions });
+      } catch (error: any) {
+        next(error);
+      }
+    },
+  );
+
+  app.get(
+    "/api/audits/projects",
+    authenticateApiKey,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // Return distinct project identifiers embedded in audit details JSON
+        // We use a SQL expression to extract details->>'project' from the JSONB column
+        const results = await db
+          .selectDistinct({ project: sql`(audit_logs.details->>'project')` })
+          .from(auditLogs);
+
+        const projects = (results || [])
+          .map((r: any) => r.project)
+          .filter(Boolean);
+        res.json({ success: true, data: projects });
+      } catch (error: any) {
+        next(error);
+      }
+    },
+  );
+
+  app.post(
+    "/api/audits/ingest",
+    authenticateApiKey,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const {
+          action,
+          entityType,
+          entityId,
+          userId,
+          details = {},
+          timestamp,
+          project,
+        } = req.body;
+
+        // Require project for external audit ingestion
+        if (!action || !entityType || !project) {
           return res.status(400).json({
             success: false,
-            message: "action and entityType are required",
+            message: "action, entityType and project are required",
           });
         }
+
+        // Determine client IP (respect X-Forwarded-For when present)
+        const ip =
+          (req.headers["x-forwarded-for"] as string | undefined) ||
+          req.ip ||
+          (req.socket && (req.socket as any).remoteAddress) ||
+          "";
+
+        // Ensure project is included in audit details for later querying/visualization
+        const auditDetails = { ...(details || {}), project };
 
         const result = await db
           .insert(auditLogs)
@@ -405,9 +466,9 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             entityType,
             entityId,
             userId,
-            details,
+            details: auditDetails,
             timestamp: timestamp ? new Date(timestamp) : new Date(),
-            ipAddress: req.ip,
+            ipAddress: ip,
           })
           .returning();
 

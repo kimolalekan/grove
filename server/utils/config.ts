@@ -89,9 +89,10 @@ function parseEmailConfig(): EmailConfig | null {
 }
 
 function parseAppConfig(): AppConfig {
-  const nodeEnv = process.env.NODE_ENV;
-  const port: number = parseInt(process.env.PORT, 10);
-  const databaseUrl = process.env.DATABASE_URL;
+  const nodeEnv = process.env.NODE_ENV || "development";
+  const portEnv = process.env.PORT || "3000";
+  const port: number = parseInt(portEnv, 10);
+  const databaseUrl = process.env.DATABASE_URL || "";
 
   if (isNaN(port) || port <= 0 || port > 65535) {
     throw new ConfigurationError(

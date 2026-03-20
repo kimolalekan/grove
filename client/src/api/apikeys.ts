@@ -22,7 +22,7 @@ export interface ApiKeyUpdateRequest {
 
 export interface ApiKeySearchParams {
   search?: string;
-  status?: "active" | "revoked";
+  status?: "all" | "active" | "revoked";
   sortBy?: string;
 }
 

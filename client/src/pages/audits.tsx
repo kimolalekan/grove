@@ -56,6 +56,7 @@ export default function Audits() {
   const [selectedAction, setSelectedAction] = useState("all");
   const [selectedEntityType, setSelectedEntityType] = useState("all");
   const [selectedUser, setSelectedUser] = useState("all");
+  const [selectedProject, setSelectedProject] = useState("all");
   const [selectedTimeRange, setSelectedTimeRange] = useState("24");
   const [dateRange, setDateRange] = useState({
     from: null as Date | null,
@@ -65,14 +66,57 @@ export default function Audits() {
   const [selectedAudit, setSelectedAudit] = useState<AuditLog | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(25);
+  const [itemsPerPage] = useState(50);
 
-  const { data: auditData, refetch } = useQuery({
+  // Fetch dynamic list of actions
+  const {
+    data: actionsResponse,
+    isLoading: actionsLoading,
+    error: actionsError,
+  } = useQuery({
+    queryKey: ["audit-actions"],
+    queryFn: async () => {
+      const response = await fetch("/api/audits/actions", {
+        headers: {
+          Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
+        },
+      });
+      if (!response.ok) return { success: false, data: [] };
+      return await response.json();
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch dynamic list of projects
+  const {
+    data: projectsResponse,
+    isLoading: projectsLoading,
+    error: projectsError,
+  } = useQuery({
+    queryKey: ["audit-projects"],
+    queryFn: async () => {
+      const response = await fetch("/api/audits/projects", {
+        headers: {
+          Authorization: `Bearer ${import.meta.env.VITE_PUBLIC_API_KEY}`,
+        },
+      });
+      if (!response.ok) return { success: false, data: [] };
+      return await response.json();
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const { data: auditData, refetch } = useQuery<{
+    success: boolean;
+    data: AuditLog[];
+    total: number;
+  }>({
     queryKey: [
       "audits",
       selectedAction,
       selectedEntityType,
       selectedUser,
+      selectedProject,
       selectedTimeRange,
       dateRange.from,
       dateRange.to,
@@ -85,6 +129,8 @@ export default function Audits() {
       if (selectedEntityType !== "all")
         searchParams.append("entityType", selectedEntityType);
       if (selectedUser !== "all") searchParams.append("userId", selectedUser);
+      if (selectedProject !== "all")
+        searchParams.append("project", selectedProject);
 
       if (selectedTimeRange) {
         searchParams.append("timeRange", selectedTimeRange);
@@ -111,13 +157,13 @@ export default function Audits() {
         },
       });
       const data = await response.json();
-      return data;
+      return data as { success: boolean; data: AuditLog[]; total: number };
     },
   });
 
   const handleRefresh = () => {
     setIsLoading(true);
-    refetch().then(() => setIsLoading(false));
+    refetch().finally(() => setIsLoading(false));
   };
 
   const totalPages = auditData ? Math.ceil(auditData.total / itemsPerPage) : 0;
@@ -173,7 +219,43 @@ export default function Audits() {
             Filters
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <Select value={selectedAction} onValueChange={setSelectedAction}>
+            {/* Project */}
+            <Select
+              value={selectedProject}
+              onValueChange={(v) => {
+                setSelectedProject(v);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder="Project" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Projects</SelectItem>
+                {projectsResponse?.data && projectsResponse.data.length > 0 ? (
+                  projectsResponse.data.map((proj: string) => (
+                    <SelectItem key={proj} value={proj}>
+                      {proj}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="loading" disabled>
+                    {projectsLoading ? "Loading projects..." : "No projects"}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {/* Actions */}
+            <Select
+              value={selectedAction}
+              onValueChange={(v) => {
+                setSelectedAction(v);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger>
                 <div className="flex items-center gap-2">
                   <ActivityIcon className="h-4 w-4 text-muted-foreground" />
@@ -182,30 +264,27 @@ export default function Audits() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Actions</SelectItem>
-                <SelectItem value="LOAN_CREATED">Loan Created</SelectItem>
-                <SelectItem value="LOAN_UPDATED">Loan Updated</SelectItem>
-                <SelectItem value="CREDIT_SCORE_CREATED">
-                  Credit Score Created
-                </SelectItem>
-                <SelectItem value="FINANCIAL_STATE_CREATED">
-                  Financial State Created
-                </SelectItem>
-                <SelectItem value="FINANCIAL_STATE_UPDATED">
-                  Financial State Updated
-                </SelectItem>
-                <SelectItem value="USER_LOGIN">User Login</SelectItem>
-                <SelectItem value="USER_PROFILE_UPDATED">
-                  User Profile Updated
-                </SelectItem>
-                <SelectItem value="USER_PROFILE_CREATED">
-                  User Profile Created
-                </SelectItem>
+                {actionsResponse?.data && actionsResponse.data.length > 0 ? (
+                  actionsResponse.data.map((action: string) => (
+                    <SelectItem key={action} value={action}>
+                      {action.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="loading" disabled>
+                    {actionsLoading ? "Loading actions..." : "No actions"}
+                  </SelectItem>
+                )}
               </SelectContent>
             </Select>
 
+            {/* Entity Type */}
             <Select
               value={selectedEntityType}
-              onValueChange={setSelectedEntityType}
+              onValueChange={(v) => {
+                setSelectedEntityType(v);
+                setCurrentPage(1);
+              }}
             >
               <SelectTrigger>
                 <div className="flex items-center gap-2">
@@ -222,9 +301,13 @@ export default function Audits() {
               </SelectContent>
             </Select>
 
+            {/* Time range / custom */}
             <Select
               value={selectedTimeRange}
-              onValueChange={setSelectedTimeRange}
+              onValueChange={(v) => {
+                setSelectedTimeRange(v);
+                setCurrentPage(1);
+              }}
             >
               <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Time Range" />
@@ -267,6 +350,7 @@ export default function Audits() {
                     />
                   </PopoverContent>
                 </Popover>
+
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -301,7 +385,10 @@ export default function Audits() {
                 placeholder="Search by User ID..."
                 className="pl-10"
                 value={selectedUser === "all" ? "" : selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value || "all")}
+                onChange={(e) => {
+                  setSelectedUser(e.target.value || "all");
+                  setCurrentPage(1);
+                }}
               />
             </div>
           </div>

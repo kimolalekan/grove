@@ -151,7 +151,7 @@ export default function Apikeys() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [currentApikey, setCurrentApikey] = useState<Apikey | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [copiedKeyId, setCopiedKeyId] = useState<number | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<
     "all" | "active" | "revoked"
   >("all");
@@ -159,8 +159,9 @@ export default function Apikeys() {
     name: "",
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
-  const [visibleKeyIds, setVisibleKeyIds] = useState<number[]>([]);
+  const [itemsPerPage] = useState(50);
+  // Track visible keys by their secret `key` (string) instead of numeric `id`
+  const [visibleKeyKeys, setVisibleKeyKeys] = useState<string[]>([]);
 
   const {
     data: responseData = { data: [] },
@@ -412,16 +413,16 @@ export default function Apikeys() {
     toggleApikeyStatusMutation.mutate({ key, currentStatus });
   };
 
-  const toggleKeyVisibility = (id: number) => {
-    setVisibleKeyIds((prev) =>
-      prev.includes(id) ? prev.filter((ki) => ki !== id) : [...prev, id],
+  const toggleKeyVisibility = (key: string) => {
+    setVisibleKeyKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
     );
   };
 
-  const handleCopyKey = (key: string, id: number) => {
+  const handleCopyKey = (key: string) => {
     navigator.clipboard.writeText(key);
-    setCopiedKeyId(id);
-    setTimeout(() => setCopiedKeyId(null), 2000);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const filteredApikeys = apikeys.filter((api: Apikey) => {
@@ -575,7 +576,7 @@ export default function Apikeys() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold">
-                            {visibleKeyIds.includes(apikey.id)
+                            {visibleKeyKeys.includes(apikey.key)
                               ? apikey.key
                               : "••••••••••••••••"}
                           </code>
@@ -583,10 +584,10 @@ export default function Apikeys() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => toggleKeyVisibility(apikey.id)}
+                              onClick={() => toggleKeyVisibility(apikey.key)}
                               className="h-8 w-8"
                             >
-                              {visibleKeyIds.includes(apikey.id) ? (
+                              {visibleKeyKeys.includes(apikey.key) ? (
                                 <EyeOff className="h-4 w-4" />
                               ) : (
                                 <Eye className="h-4 w-4" />
@@ -595,12 +596,10 @@ export default function Apikeys() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() =>
-                                handleCopyKey(apikey.key, apikey.id)
-                              }
+                              onClick={() => handleCopyKey(apikey.key)}
                               className="h-8 w-8"
                             >
-                              {copiedKeyId === apikey.id ? (
+                              {copiedKey === apikey.key ? (
                                 <CheckCircle2 className="h-4 w-4 text-green-500" />
                               ) : (
                                 <Copy className="h-4 w-4" />

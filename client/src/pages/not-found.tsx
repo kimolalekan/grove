@@ -22,7 +22,7 @@ export default function NotFound() {
             className="bg-admin-green hover:bg-green-700 mt-10"
           >
             <a href="/" className="flex">
-              <Home className="h-6 w-6 mr-2" /> Go Back
+              <Home className="h-6 w-6 mr-2" /> Go Home
             </a>
           </Button>
         </div>

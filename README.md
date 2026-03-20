@@ -4,9 +4,7 @@
   </a>
 </p>
 <div align="center">
-
 [![Build Pipeline](https://github.com/kimolalekan/grove/actions/workflows/build.yml/badge.svg)](https://github.com/kimolalekan/grove/actions/workflows/build.yml)
-
 </div>
 
 ![image1](./assets/screenshot1.png)
@@ -127,6 +125,32 @@ You can push audits from external systems using a simple POST request:
   "details": {
     "amount": 5000,
     "interestRate": 0.05
+  }
+}
+```
+
+
+You can push logs from external systems using a simple POST request:
+
+**Endpoint**: `POST /api/logs`
+**Auth**: Requires a valid ` Grove API Key` in the `Authorization` header.
+
+**Payload Example**:
+
+```json
+{
+  "project": "Example",
+  "source": "example-api",
+  "message": "Order item",
+  "level": "info",
+  "details": {
+   "method": "POST",
+  "path": "/api/orders",
+  "statusCode": 201,
+  "duration": 10,
+  "ip": "192.168.1.187",
+  "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15",
+  "size": "8923B"
   }
 }
 ```

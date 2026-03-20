@@ -248,7 +248,7 @@ export default function Alerts() {
   const [deletingRuleId, setDeletingRuleId] = useState<number | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage] = useState(50);
   const [preloadedPages, setPreloadedPages] = useState(new Set<number>());
 
   const [newRule, setNewRule] = useState({
