@@ -1,5 +1,5 @@
-<div style="text-align: center; margin-bottom: 2rem;">
-  <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" width="400" alt="Grove" />
+<div style="max-width: 500px; margin: 0 auto; text-align: center; margin-bottom: 2rem;">
+  <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" style="max-width:400px;" alt="Grove" />
 </div>
 
 ![Grove dashboard 1](assets/screenshot1.png)
