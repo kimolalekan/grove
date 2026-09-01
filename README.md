@@ -1,8 +1,6 @@
 <div style="text-align: center; margin-bottom: 2rem;">
-  <img src="https://github.com/kimolalekan/grove/assets/grove-wordmark.png" width="400" alt="Grove" />
+  <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" width="400" alt="Grove" />
 </div>
-
-## Screenshots
 
 ![Grove dashboard 1](assets/screenshot1.png)
 
