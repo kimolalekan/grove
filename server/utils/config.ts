@@ -4,8 +4,11 @@ import type { NextFunction, Request, Response } from "express";
 dotenv.config();
 
 export interface EmailConfig {
-  apiUrl: string;
-  apiKey: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  user?: string;
+  pass?: string;
   from: string;
   fromName: string;
   recipients: string[];
@@ -27,7 +30,7 @@ class ConfigurationError extends Error {
   }
 }
 
-const DEFAULT_ZEPTOMAIL_API_URL = "https://api.zeptomail.com/v1.1/email";
+const DEFAULT_SMTP_PORT = 587;
 
 // Parses a "Display Name <address@domain.com>" string into its parts.
 // A bare "address@domain.com" works too.
@@ -40,21 +43,24 @@ function parseFromAddress(from: string): { address: string; name: string } {
 }
 
 function parseEmailConfig(): EmailConfig | null {
-  const apiKey = process.env.ZEPTOMAIL_API_KEY;
+  const host = process.env.SMTP_HOST;
 
-  if (!apiKey) {
+  if (!host) {
     console.warn(
       "Email configuration not found. Email notifications will be disabled.",
     );
     console.warn(
-      "To enable email notifications, set ZEPTOMAIL_API_KEY and ZEPTOMAIL_API_URL environment variables.",
+      "To enable email notifications, set SMTP_HOST (and optionally SMTP_USER/SMTP_PASS) environment variables.",
     );
     return null;
   }
 
-  const apiUrl = process.env.ZEPTOMAIL_API_URL || DEFAULT_ZEPTOMAIL_API_URL;
+  const port = parseInt(process.env.SMTP_PORT || String(DEFAULT_SMTP_PORT), 10);
+  const secure = process.env.SMTP_SECURE === "true";
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
   const { address: from, name: fromName } = parseFromAddress(
-    process.env.ZEPTOMAIL_FROM || process.env.EMAIL_FROM || "",
+    process.env.EMAIL_FROM || "",
   );
 
   if (!from) {
@@ -62,7 +68,7 @@ function parseEmailConfig(): EmailConfig | null {
       "Email sender address not configured. Email notifications will be disabled.",
     );
     console.warn(
-      'To enable email notifications, set ZEPTOMAIL_FROM (e.g. "Grove Alerts <alerts@yourdomain.com>").',
+      'To enable email notifications, set EMAIL_FROM (e.g. "Grove Alerts <alerts@yourdomain.com>").',
     );
     return null;
   }
@@ -89,8 +95,11 @@ function parseEmailConfig(): EmailConfig | null {
   }
 
   return {
-    apiUrl,
-    apiKey,
+    host,
+    port: Number.isFinite(port) && port > 0 ? port : DEFAULT_SMTP_PORT,
+    secure,
+    user,
+    pass,
     from,
     fromName,
     recipients,
@@ -145,8 +154,9 @@ export function printConfigSummary(config: AppConfig): void {
 
   if (config.email) {
     console.log("\n📧 Email Configuration:");
-    console.log(`  Provider: ZeptoMail`);
-    console.log(`  API URL: ${config.email.apiUrl}`);
+    console.log(`  Provider: SMTP`);
+    console.log(`  Host: ${config.email.host}:${config.email.port}`);
+    console.log(`  Auth: ${config.email.user ? config.email.user : "none"}`);
     console.log(`  From Address: ${config.email.from}`);
     console.log(
       `  Default Recipients: ${config.email.recipients.length} configured`,
@@ -190,7 +200,7 @@ export function isEmailEnabled(config: AppConfig): boolean {
 export function getEmailConfig(config: AppConfig): EmailConfig {
   if (!config.email) {
     throw new Error(
-      "Email is not configured. Please set ZEPTOMAIL_API_KEY and ZEPTOMAIL_FROM environment variables.",
+      "Email is not configured. Please set SMTP_HOST and EMAIL_FROM environment variables.",
     );
   }
   return config.email;
@@ -207,11 +217,13 @@ PORT=3000
 # Database Configuration (PostgreSQL)
 DATABASE_URL=postgresql://user:password@localhost:5432/grove_db
 
-# Email Configuration (ZeptoMail - for alert notifications)
-# https://www.zeptomail.com/
-ZEPTOMAIL_API_URL=https://api.zeptomail.com/v1.1/email
-ZEPTOMAIL_API_KEY=your-zeptomail-api-key
-ZEPTOMAIL_FROM=Grove Alert System <alerts@yourdomain.com>
+# Email Configuration (SMTP - for alert notifications)
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+EMAIL_FROM=Grove Alert System <alerts@yourdomain.com>
 
 # Default email recipients for alerts (comma-separated)
 EMAIL_RECIPIENTS=admin@company.com,alerts@company.com
@@ -227,9 +239,8 @@ API_KEYS=your-api-key-1,your-api-key-2
 export async function validateEmailConnection(
   config: AppConfig,
 ): Promise<boolean> {
-  // ZeptoMail has no lightweight health-check endpoint; the presence of a
-  // configured API key and sender address is treated as "connected".
-  return Boolean(config.email && config.email.apiKey && config.email.from);
+  // Performs a real SMTP connection handshake to check the server is reachable.
+  return Boolean(config.email && config.email.host && config.email.from);
 }
 
 export function validateConfig() {

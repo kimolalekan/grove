@@ -1,3 +1,6 @@
+import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
+
 interface EmailTemplate {
   id?: string;
   name: string;
@@ -25,17 +28,23 @@ interface SendEmailOptions {
 }
 
 interface EmailServiceOptions {
+  /** SMTP server hostname (SMTP_HOST). */
+  host: string;
+  /** SMTP server port (SMTP_PORT, e.g. 587 or 465). */
+  port: number;
+  /** Use TLS when connecting (SMTP_SECURE — true for port 465). */
+  secure: boolean;
+  /** SMTP username for authentication (SMTP_USER), optional. */
+  user?: string;
+  /** SMTP password for authentication (SMTP_PASS), optional. */
+  pass?: string;
   /** Sender address (e.g. "alerts@yourdomain.com"). */
   from: string;
   /** Optional display name for the sender. */
   fromName?: string;
-  /** ZeptoMail API endpoint (ZEPTOMAIL_API_URL). */
-  apiUrl: string;
-  /** ZeptoMail API key used as the Authorization header (ZEPTOMAIL_API_KEY). */
-  apiKey: string;
 }
 
-const DEFAULT_ZEPTOMAIL_API_URL = "https://api.zeptomail.com/v1.1/email";
+const DEFAULT_SMTP_PORT = 587;
 
 // Parses a "Display Name <address@domain.com>" string into its parts.
 // A bare "address@domain.com" works too.
@@ -48,56 +57,44 @@ const parseFromAddress = (from: string): { address: string; name: string } => {
 };
 
 class EmailService {
-  private apiUrl: string;
-  private apiKey: string;
+  private transporter: Transporter;
   private from: string;
   private fromName: string;
 
   constructor(options: EmailServiceOptions) {
-    this.apiUrl = options.apiUrl;
-    this.apiKey = options.apiKey;
     this.from = options.from;
     this.fromName = options.fromName || "";
+
+    this.transporter = nodemailer.createTransport({
+      host: options.host,
+      port: options.port,
+      secure: options.secure,
+      auth:
+        options.user || options.pass
+          ? { user: options.user || "", pass: options.pass || "" }
+          : undefined,
+    });
   }
 
   async sendEmail(
     options: SendEmailOptions,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      const recipients = Array.isArray(options.to) ? options.to : [options.to];
+      const fromAddress = this.fromName
+        ? `"${this.fromName}" <${this.from}>`
+        : this.from;
 
-      const response = await fetch(this.apiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: this.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: {
-            address: this.from,
-            name: this.fromName,
-          },
-          to: recipients.map((address) => ({
-            email_address: { address, name: "" },
-          })),
-          subject: options.subject,
-          htmlbody: options.html,
-          textbody: options.text || this.htmlToText(options.html),
-        }),
-        signal: AbortSignal.timeout(10_000),
+      const info = await this.transporter.sendMail({
+        from: fromAddress,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text || this.htmlToText(options.html),
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(
-          `Zeptomail API error (${response.status}): ${errorBody}`,
-        );
-      }
-
-      const data = await response.json();
       return {
         success: true,
-        messageId: data?.message_id || `zeptomail-${Date.now()}`,
+        messageId: info.messageId,
       };
     } catch (error) {
       console.error("Email sending failed:", error);
@@ -174,35 +171,49 @@ class EmailService {
   }
 
   async verifyConnection(): Promise<boolean> {
-    // ZeptoMail has no lightweight health-check endpoint; the presence of a
-    // configured API key and sender address is treated as "connected".
-    return Boolean(this.apiUrl && this.apiKey && this.from);
+    // Performs a real SMTP connection handshake to check the server is reachable.
+    try {
+      await this.transporter.verify();
+      return true;
+    } catch (error) {
+      console.error("SMTP connection verification failed:", error);
+      return false;
+    }
   }
 }
 
 // Factory function to create email service instance
 export function createEmailService(): EmailService | null {
-  const apiUrl = process.env.ZEPTOMAIL_API_URL || DEFAULT_ZEPTOMAIL_API_URL;
-  const apiKey = process.env.ZEPTOMAIL_API_KEY;
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT || String(DEFAULT_SMTP_PORT), 10);
+  const secure = process.env.SMTP_SECURE === "true";
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
   const { address: from, name: fromName } = parseFromAddress(
-    process.env.ZEPTOMAIL_FROM || process.env.EMAIL_FROM || "",
+    process.env.EMAIL_FROM || "",
   );
 
-  if (!apiKey) {
-    console.warn(
-      "Email service not configured. ZEPTOMAIL_API_KEY is required.",
-    );
+  if (!host) {
+    console.warn("Email service not configured. SMTP_HOST is required.");
     return null;
   }
 
   if (!from) {
     console.warn(
-      'Email service sender not configured. Set ZEPTOMAIL_FROM (e.g. "Grove Alerts <alerts@yourdomain.com>").',
+      'Email service sender not configured. Set EMAIL_FROM (e.g. "Grove Alerts <alerts@yourdomain.com>").',
     );
     return null;
   }
 
-  return new EmailService({ from, fromName, apiUrl, apiKey });
+  return new EmailService({
+    host,
+    port: Number.isFinite(port) && port > 0 ? port : DEFAULT_SMTP_PORT,
+    secure,
+    user,
+    pass,
+    from,
+    fromName,
+  });
 }
 
 export { EmailService };

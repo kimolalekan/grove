@@ -13,7 +13,7 @@
 - **Metrics dashboard** — Overview (requests/min, error rate, uptime), Performance (response time, throughput), and Resources (CPU, memory, disk, network) with time-range filtering and charts.
 - **Log explorer** — Search and filter logs by level, source, project, and time range, with pagination and a detail view showing request metadata (IP, method, path, status code, duration).
 - **Alerting** — Define alert rules (metric + condition + threshold), let the built-in monitoring service evaluate them against incoming logs, or trigger them manually via the API. Alerts support acknowledge/resolve workflows.
-- **Email notifications** — Alerts are delivered through [ZeptoMail](https://www.zeptomail.com/) with HTML templates and a multi-tier rate limiter (per-recipient, per-alert, and system-wide) to prevent spam.
+- **Email notifications** — Alerts are delivered via SMTP (nodemailer) with HTML templates and a multi-tier rate limiter (per-recipient, per-alert, and system-wide) to prevent spam.
 - **User management** — Role-based access (`user`, `moderator`, `admin`) with password auth (bcrypt) and session cookies.
 - **API key management** — Create, revoke, reactivate, and rotate `sk_`-prefixed API keys used to authenticate log ingestion and API access.
 - **Audit logs** — Ingest and review audit events (login, profile changes, loan/financial actions, etc.) with entity-level filtering.
@@ -47,13 +47,15 @@ DATABASE_URL=postgresql://user:password@localhost:5432/grove
 # Client-side public API key (written automatically by the init script)
 VITE_PUBLIC_API_KEY=
 
-# Email notifications (ZeptoMail) — optional
-ZEPTOMAIL_API_URL=https://api.zeptomail.com/v1.1/email
-ZEPTOMAIL_API_KEY=your-zeptomail-api-key
-ZEPTOMAIL_FROM="Grove Alerts <alerts@yourdomain.com>"
+# Email notifications (SMTP)
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+EMAIL_FROM="Grove Alerts <alerts@yourdomain.com>"
 EMAIL_RECIPIENTS=admin@company.com,alerts@company.com
 TEST_EMAIL=test@company.com
-
 
 ```
 
@@ -110,7 +112,7 @@ Open http://localhost:3211 — the Vite dev server is embedded in the Express ap
 
 Alert rules evaluate incoming log data on an interval. Log-derived metrics include `error_rate`, `error_count`, `log_count`, `avg_response_time`, `max_response_time`, `4xx_rate`, `5xx_rate`, and `unique_errors` (CPU, memory, and disk alerts are available through the manual trigger endpoints instead). Each rule has a condition (e.g. `greater than`, `less_than`, `>=`), a threshold (e.g. `5%`, `1000ms`, `85`), and a notify target.
 
-When a rule fires, the `AlertRuleMonitoringService` creates an alert and — if email is configured — sends a templated message through ZeptoMail. Emails are guarded by a multi-tier in-memory rate limiter:
+When a rule fires, the `AlertRuleMonitoringService` creates an alert and — if email is configured — sends a templated message over SMTP via nodemailer. Emails are guarded by a multi-tier in-memory rate limiter:
 
 - 10 emails per recipient per 5 minutes
 - 1 email per alert per recipient per hour
