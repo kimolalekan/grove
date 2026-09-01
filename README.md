@@ -1,11 +1,14 @@
-<div style="text-align: center; margin-bottom: 2rem;">
-  <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" width="400" alt="Grove" />
+<div style="max-width: 500px; margin:0 auto; text-align: center; margin-bottom: 2rem;">
+  <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" height="150px" alt="Grove" />
   <br />
   <a href="https://github.com/kimolalekan/grove/actions/workflows/build.yml">
     <img src="https://github.com/kimolalekan/grove/actions/workflows/build.yml/badge.svg" alt="Build status" />
   </a>
   <a href="https://github.com/kimolalekan/grove/pkgs/container/grove">
     <img src="https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white" alt="Docker image" />
+  </a>
+  <a href="https://github.com/kimolalekan/grove/blob/main/package.json">
+    <img src="https://img.shields.io/github/package-json/v/kimolalekan/grove?label=version&color=1f6feb" alt="Version" />
   </a>
 </div>
 
