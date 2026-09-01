@@ -1,4 +1,4 @@
-<div style="max-width: 500px; margin:0 auto; text-align: center; margin-bottom: 2rem;">
+<p align="center">
   <img src="https://raw.githubusercontent.com/kimolalekan/grove/refs/heads/main/assets/grove-wordmark.png" height="150px" alt="Grove" />
   <br />
   <a href="https://github.com/kimolalekan/grove/actions/workflows/build.yml">
@@ -10,7 +10,9 @@
   <a href="https://github.com/kimolalekan/grove/blob/main/package.json">
     <img src="https://img.shields.io/github/package-json/v/kimolalekan/grove?label=version&color=1f6feb" alt="Version" />
   </a>
-</div>
+</p>
+
+---
 
 ![Grove dashboard 1](assets/screenshot1.png)
 
