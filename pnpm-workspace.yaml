@@ -1,0 +1,12 @@
+allowBuilds:
+  bufferutil: false
+  esbuild: false
+minimumReleaseAgeExclude:
+  - esbuild@0.25.12
+  - nodemailer@9.1.0
+  - vite@6.4.3
+overrides:
+  esbuild@<=0.24.2: ^0.25.0
+  nodemailer: ^9.1.0
+  vite@<=6.4.2: ^6.4.3
+  zod-validation-error: ^4.0.0

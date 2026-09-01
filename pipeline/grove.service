@@ -1,0 +1,16 @@
+# /etc/systemd/system/grove.service
+[Unit]
+Description=Grove Collector Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/etc/grove/grove.sh
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/grove.log
+StandardError=append:/var/log/grove.log
+
+[Install]
+WantedBy=multi-user.target
