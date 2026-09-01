@@ -4,6 +4,9 @@
   <a href="https://github.com/kimolalekan/grove/actions/workflows/build.yml">
     <img src="https://github.com/kimolalekan/grove/actions/workflows/build.yml/badge.svg" alt="Build status" />
   </a>
+  <a href="https://github.com/kimolalekan/grove/pkgs/container/grove">
+    <img src="https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white" alt="Docker image" />
+  </a>
 </div>
 
 ![Grove dashboard 1](assets/screenshot1.png)
