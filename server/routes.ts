@@ -83,15 +83,11 @@ const authenticateApiKey = async (
   next: NextFunction,
 ) => {
   try {
+    // API keys are sent via `Authorization: Bearer <key>` only.
     const authHeader = req.headers.authorization;
-    const xApiKey = req.headers["x-api-key"];
-
-    let apiKey = "";
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      apiKey = authHeader.substring(7);
-    } else if (xApiKey) {
-      apiKey = xApiKey as string;
-    }
+    const apiKey = authHeader?.startsWith("Bearer ")
+      ? authHeader.substring(7)
+      : "";
 
     if (!apiKey) {
       if (req.path === "/api/users/login" || req.path === "/api/users/setup") {
