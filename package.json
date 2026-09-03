@@ -12,7 +12,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "prod": "pnpm build && NODE_ENV=production pm2 start dist/index.js -n 'grove-server'",
     "prod:restart": "pnpm build && pm2 reload dist/index.js -n 'grove-server' --update-env",
-    "db:migrate": "tsx scripts/migrate.ts",
+    "migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed-data.ts",
     "seed:init": "tsx scripts/initial-setup.ts"
   },
