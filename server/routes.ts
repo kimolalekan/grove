@@ -1727,62 +1727,55 @@ const registerRoutes = async (app: Express): Promise<Server> => {
         if (project && project !== "all")
           conditions.push(eq(logsTable.project, project as string));
 
-        const [totalResult, errorResult, durationResult] = await Promise.all([
-          db
-            .select({ count: sql<number>`count(*)` })
-            .from(logsTable)
-            .where(and(...conditions)),
-          db
-            .select({ count: sql<number>`count(*)` })
-            .from(logsTable)
-            .where(and(...conditions, eq(logsTable.level, "error"))),
-          db
-            .select({
-              avgDuration: sql<number>`avg(CAST(details->>'duration' AS FLOAT))`,
-            })
-            .from(logsTable)
-            .where(and(...conditions, sql`details->>'duration' IS NOT NULL`)),
-        ]);
+        // Headline totals in a single scan instead of three separate queries.
+        const summaryResult = await db
+          .select({
+            total: sql<number>`count(*)`,
+            errors: sql<number>`count(*) FILTER (WHERE ${logsTable.level} = 'error')`,
+            avgDuration: sql<number>`avg(CAST(${logsTable.details}->>'duration' AS FLOAT))`,
+          })
+          .from(logsTable)
+          .where(and(...conditions));
 
-        const totalRequests = Number(totalResult[0].count);
-        const errorCount = Number(errorResult[0].count);
+        const totalRequests = Number(summaryResult[0].total);
+        const errorCount = Number(summaryResult[0].errors);
         const avgResponseTime = Math.round(
-          Number(durationResult[0].avgDuration) || 0,
+          Number(summaryResult[0].avgDuration) || 0,
         );
 
-        // Generate simplified time series (20 intervals)
+        // Build the time series with one grouped query rather than two queries
+        // per interval (previously 40 round-trips). `width_bucket` splits the
+        // range into equal-width bins, returning 1..intervals for in-range rows.
         const intervals = 20;
-        const intervalMs = (now.getTime() - startTime.getTime()) / intervals;
-        const timeSeriesData = await Promise.all(
-          Array.from({ length: intervals }).map(async (_, i) => {
-            const start = new Date(startTime.getTime() + i * intervalMs);
-            const end = new Date(start.getTime() + intervalMs);
-            const [t, e] = await Promise.all([
-              db
-                .select({ count: sql<number>`count(*)` })
-                .from(logsTable)
-                .where(
-                  and(
-                    ...conditions,
-                    sql`${logsTable.timestamp} >= ${start.toISOString()}`,
-                    sql`${logsTable.timestamp} < ${end.toISOString()}`,
-                  ),
-                ),
-              db
-                .select({ count: sql<number>`count(*)` })
-                .from(logsTable)
-                .where(
-                  and(
-                    ...conditions,
-                    eq(logsTable.level, "error"),
-                    sql`${logsTable.timestamp} >= ${start.toISOString()}`,
-                    sql`${logsTable.timestamp} < ${end.toISOString()}`,
-                  ),
-                ),
-            ]);
-            return { total: Number(t[0].count), errors: Number(e[0].count) };
-          }),
-        );
+        const startEpoch = startTime.getTime() / 1000;
+        const endEpoch = now.getTime() / 1000;
+        const bucketExpr = sql<number>`width_bucket(extract(epoch from ${logsTable.timestamp})::double precision, ${startEpoch}::double precision, ${endEpoch}::double precision, ${intervals}::int)`;
+
+        const bucketRows = await db
+          .select({
+            bucket: bucketExpr,
+            total: sql<number>`count(*)`,
+            errors: sql<number>`count(*) FILTER (WHERE ${logsTable.level} = 'error')`,
+          })
+          .from(logsTable)
+          .where(and(...conditions))
+          // Group/order by ordinal: Drizzle emits fresh parameter
+          // placeholders per clause, so duplicating `bucketExpr` here would
+          // not structurally match the SELECT expression for Postgres.
+          .groupBy(sql`1`)
+          .orderBy(sql`1`);
+
+        const requestData = new Array<number>(intervals).fill(0);
+        const errorRateData = new Array<number>(intervals).fill(0);
+        for (const row of bucketRows) {
+          const index = Number(row.bucket) - 1;
+          if (index < 0 || index >= intervals) continue;
+          const intervalTotal = Number(row.total);
+          const intervalErrors = Number(row.errors);
+          requestData[index] = intervalTotal;
+          errorRateData[index] =
+            intervalTotal > 0 ? (intervalErrors / intervalTotal) * 100 : 0;
+        }
 
         res.json({
           success: true,
@@ -1800,10 +1793,8 @@ const registerRoutes = async (app: Express): Promise<Server> => {
                 : 0,
             avgResponseTime,
             uptime: 99.98,
-            requestData: timeSeriesData.map((d) => d.total),
-            errorRateData: timeSeriesData.map((d) =>
-              d.total > 0 ? (d.errors / d.total) * 100 : 0,
-            ),
+            requestData,
+            errorRateData,
           },
         });
       } catch (error) {
@@ -1832,62 +1823,58 @@ const registerRoutes = async (app: Express): Promise<Server> => {
 
         const conditions = [
           sql`${logsTable.timestamp} >= ${startTime.toISOString()}`,
-          sql`details->>'duration' IS NOT NULL`,
+          sql`${logsTable.details}->>'duration' IS NOT NULL`,
         ];
         if (project && project !== "all")
           conditions.push(eq(logsTable.project, project as string));
 
         const statsResult = await db
           .select({
-            avg: sql<number>`avg(CAST(details->>'duration' AS FLOAT))`,
-            max: sql<number>`max(CAST(details->>'duration' AS FLOAT))`,
-            min: sql<number>`min(CAST(details->>'duration' AS FLOAT))`,
+            avg: sql<number>`avg(CAST(${logsTable.details}->>'duration' AS FLOAT))`,
+            max: sql<number>`max(CAST(${logsTable.details}->>'duration' AS FLOAT))`,
+            min: sql<number>`min(CAST(${logsTable.details}->>'duration' AS FLOAT))`,
             count: sql<number>`count(*)`,
           })
           .from(logsTable)
           .where(and(...conditions));
 
-        // Per-interval time series for the response-time and throughput charts
+        // Per-interval time series for the response-time and throughput charts.
+        // A single grouped query replaces the previous 40 interval queries.
         const intervals = 20;
-        const intervalMs = (now.getTime() - startTime.getTime()) / intervals;
-        const projectFilter =
-          project && project !== "all"
-            ? eq(logsTable.project, project as string)
-            : undefined;
+        const startEpoch = startTime.getTime() / 1000;
+        const endEpoch = now.getTime() / 1000;
+        const bucketExpr = sql<number>`width_bucket(extract(epoch from ${logsTable.timestamp})::double precision, ${startEpoch}::double precision, ${endEpoch}::double precision, ${intervals}::int)`;
 
-        const timeSeriesData = await Promise.all(
-          Array.from({ length: intervals }).map(async (_, i) => {
-            const start = new Date(startTime.getTime() + i * intervalMs);
-            const end = new Date(start.getTime() + intervalMs);
-            const intervalFilters = [
-              sql`${logsTable.timestamp} >= ${start.toISOString()}`,
-              sql`${logsTable.timestamp} < ${end.toISOString()}`,
-            ];
-            if (projectFilter) intervalFilters.push(projectFilter);
+        // Throughput counts every log in the range, while response time only
+        // averages logs that carry a duration.
+        const seriesConditions = [
+          sql`${logsTable.timestamp} >= ${startTime.toISOString()}`,
+        ];
+        if (project && project !== "all")
+          seriesConditions.push(eq(logsTable.project, project as string));
 
-            const [rt, th] = await Promise.all([
-              db
-                .select({
-                  avg: sql<number>`avg(CAST(details->>'duration' AS FLOAT))`,
-                })
-                .from(logsTable)
-                .where(
-                  and(
-                    ...intervalFilters,
-                    sql`details->>'duration' IS NOT NULL`,
-                  ),
-                ),
-              db
-                .select({ count: sql<number>`count(*)` })
-                .from(logsTable)
-                .where(and(...intervalFilters)),
-            ]);
-            return {
-              avg: Math.round(Number(rt[0].avg) || 0),
-              total: Number(th[0].count),
-            };
-          }),
-        );
+        const bucketRows = await db
+          .select({
+            bucket: bucketExpr,
+            total: sql<number>`count(*)`,
+            avgDuration: sql<number>`avg(CAST(${logsTable.details}->>'duration' AS FLOAT)) FILTER (WHERE ${logsTable.details}->>'duration' IS NOT NULL)`,
+          })
+          .from(logsTable)
+          .where(and(...seriesConditions))
+          // Group/order by ordinal: Drizzle emits fresh parameter
+          // placeholders per clause, so duplicating `bucketExpr` here would
+          // not structurally match the SELECT expression for Postgres.
+          .groupBy(sql`1`)
+          .orderBy(sql`1`);
+
+        const responseTimeData = new Array<number>(intervals).fill(0);
+        const throughputData = new Array<number>(intervals).fill(0);
+        for (const row of bucketRows) {
+          const index = Number(row.bucket) - 1;
+          if (index < 0 || index >= intervals) continue;
+          responseTimeData[index] = Math.round(Number(row.avgDuration) || 0);
+          throughputData[index] = Number(row.total);
+        }
 
         res.json({
           success: true,
@@ -1896,8 +1883,8 @@ const registerRoutes = async (app: Express): Promise<Server> => {
             maxResponseTime: Math.round(Number(statsResult[0].max) || 0),
             minResponseTime: Math.round(Number(statsResult[0].min) || 0),
             totalRequests: Number(statsResult[0].count),
-            responseTimeData: timeSeriesData.map((d) => d.avg),
-            throughputData: timeSeriesData.map((d) => d.total),
+            responseTimeData,
+            throughputData,
           },
         });
       } catch (error) {
